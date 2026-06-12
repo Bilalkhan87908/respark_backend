@@ -78,7 +78,7 @@ async function main() {
     update: {
       businessType: "Salon",
       email: "demo@salon.local",
-      phone: "+923001112233",
+      phone: "+919876543210",
       city: "Lahore",
       country: "Pakistan",
       currency: "PKR",
@@ -91,7 +91,7 @@ async function main() {
       slug: "demo-salon",
       businessType: "Salon",
       email: "demo@salon.local",
-      phone: "+923001112233",
+      phone: "+919876543210",
       city: "Lahore",
       country: "Pakistan",
       currency: "PKR",
@@ -109,7 +109,7 @@ async function main() {
       salonId: salon.id,
       name: "Main Branch",
       address: "Mall Road",
-      phone: "+923001112233",
+      phone: "+919876543210",
       isActive: true
     },
     create: {
@@ -117,7 +117,7 @@ async function main() {
       salonId: salon.id,
       name: "Main Branch",
       address: "Mall Road",
-      phone: "+923001112233",
+      phone: "+919876543210",
       isActive: true
     }
   });
@@ -169,7 +169,7 @@ async function main() {
     showMemberships: true,
     showProducts: true,
     showStaffPortfolio: true,
-    whatsappNumber: "+923001112233",
+    whatsappNumber: "+919876543210",
     themeColor: "#0f766e"
   };
   if (existingCatalogSetting) {

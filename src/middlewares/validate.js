@@ -286,15 +286,16 @@ export const schemas = {
       isPopular: z.boolean().optional()
     })
   }),
-  customer: z.object({
-    body: z.object({
-      name: z.string().min(2),
-      phone: indianPhoneSchema,
-      email: optionalEmailLike,
-      gender: optionalString,
-      dateOfBirth: optionalDateString,
-      anniversary: optionalDateString,
-      source: optionalString,
+    customer: z.object({
+      body: z.object({
+        name: z.string().min(2),
+        phone: indianPhoneSchema,
+        email: optionalEmailLike,
+        branchId: z.string().optional(),
+        gender: optionalString,
+        dateOfBirth: optionalDateString,
+        anniversary: optionalDateString,
+        source: optionalString,
       tags: z.array(z.string()).optional(),
       notes: optionalString,
       preferences: optionalString,

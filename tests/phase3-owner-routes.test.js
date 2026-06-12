@@ -108,8 +108,9 @@ describe("phase3 owner routes", () => {
         type: "WHATSAPP",
         audienceFilter: "BIRTHDAY_CUSTOMERS",
         OR: expect.arrayContaining([
-          expect.objectContaining({ name: { contains: "birthday", mode: "insensitive" } }),
-          expect.objectContaining({ message: { contains: "birthday", mode: "insensitive" } })
+          expect.objectContaining({ name: { contains: "birthday" } }),
+          expect.objectContaining({ message: { contains: "birthday" } }),
+          expect.objectContaining({ audienceFilter: { contains: "birthday" } })
         ])
       })
     }));
@@ -120,7 +121,7 @@ describe("phase3 owner routes", () => {
       where: expect.objectContaining({
         campaignId: "campaign-1",
         eventType: "SENT_PLACEHOLDER",
-        details: { contains: "sent", mode: "insensitive" }
+        details: { contains: "sent" }
       })
     }));
   });

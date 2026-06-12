@@ -117,10 +117,11 @@ describe("phase2 filters", () => {
         salonId: "salon-1",
         categoryId: "category-1",
         productType: "RETAIL",
+        isActive: true,
         OR: expect.arrayContaining([
-          expect.objectContaining({ name: { contains: "serum", mode: "insensitive" } }),
-          expect.objectContaining({ sku: { contains: "serum", mode: "insensitive" } }),
-          expect.objectContaining({ barcode: { contains: "serum", mode: "insensitive" } })
+          expect.objectContaining({ name: { contains: "serum" } }),
+          expect.objectContaining({ sku: { contains: "serum" } }),
+          expect.objectContaining({ barcode: { contains: "serum" } })
         ])
       })
     }));
@@ -158,8 +159,8 @@ describe("phase2 filters", () => {
         branchId: "branch-1",
         status: "PAID",
         OR: expect.arrayContaining([
-          expect.objectContaining({ invoiceNumber: { contains: "sara", mode: "insensitive" } }),
-          expect.objectContaining({ customer: { is: { name: { contains: "sara", mode: "insensitive" } } } })
+          expect.objectContaining({ invoiceNumber: { contains: "sara" } }),
+          expect.objectContaining({ customer: { is: { name: { contains: "sara" } } } })
         ])
       })
     }));
@@ -178,8 +179,8 @@ describe("phase2 filters", () => {
         mode: "CASH",
         type: "PAYMENT",
         OR: expect.arrayContaining([
-          expect.objectContaining({ note: { contains: "note", mode: "insensitive" } }),
-          expect.objectContaining({ invoice: { is: { invoiceNumber: { contains: "note", mode: "insensitive" } } } })
+          expect.objectContaining({ note: { contains: "note" } }),
+          expect.objectContaining({ invoice: { is: { invoiceNumber: { contains: "note" } } } })
         ])
       })
     }));

@@ -66,8 +66,9 @@ describe("super admin filters", () => {
       where: expect.objectContaining({
         status: "ACTIVE",
         OR: expect.arrayContaining([
-          expect.objectContaining({ name: { contains: "lahore", mode: "insensitive" } }),
-          expect.objectContaining({ slug: { contains: "lahore", mode: "insensitive" } })
+          expect.objectContaining({ name: { contains: "lahore" } }),
+          expect.objectContaining({ slug: { contains: "lahore" } }),
+          expect.objectContaining({ email: { contains: "lahore" } })
         ])
       })
     }));
@@ -82,8 +83,9 @@ describe("super admin filters", () => {
         status: "TRIAL",
         paymentStatus: "PENDING",
         OR: expect.arrayContaining([
-          expect.objectContaining({ salon: { is: { name: { contains: "growth", mode: "insensitive" } } } }),
-          expect.objectContaining({ plan: { is: { name: { contains: "growth", mode: "insensitive" } } } })
+          expect.objectContaining({ salon: { is: { name: { contains: "growth" } } } }),
+          expect.objectContaining({ plan: { is: { name: { contains: "growth" } } } }),
+          expect.objectContaining({ notes: { contains: "growth" } })
         ])
       })
     }));
@@ -97,8 +99,9 @@ describe("super admin filters", () => {
       where: expect.objectContaining({
         status: "PENDING",
         OR: expect.arrayContaining([
-          expect.objectContaining({ name: { contains: "owner", mode: "insensitive" } }),
-          expect.objectContaining({ email: { contains: "owner", mode: "insensitive" } })
+          expect.objectContaining({ name: { contains: "owner" } }),
+          expect.objectContaining({ email: { contains: "owner" } }),
+          expect.objectContaining({ phone: { contains: "owner" } })
         ])
       })
     }));
@@ -113,8 +116,9 @@ describe("super admin filters", () => {
         status: "OPEN",
         priority: "HIGH",
         OR: expect.arrayContaining([
-          expect.objectContaining({ title: { contains: "billing", mode: "insensitive" } }),
-          expect.objectContaining({ description: { contains: "billing", mode: "insensitive" } })
+          expect.objectContaining({ title: { contains: "billing" } }),
+          expect.objectContaining({ description: { contains: "billing" } }),
+          expect.objectContaining({ category: { contains: "billing" } })
         ])
       })
     }));
