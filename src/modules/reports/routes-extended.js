@@ -235,7 +235,7 @@ const buildDateFilter = (req, field = "createdAt") => {
     const branchId = normalizeBranchId(req.query.branchId);
     const invoices = await prisma.invoice.findMany({
       where: buildInvoiceWhere(req, branchId),
-      include: { customer: true, items: { include: { staffUserSalon: { include: { user: true } } } } },
+      include: { customer: true, payments: true, items: { include: { staffUserSalon: { include: { user: true } } } } },
       orderBy: { createdAt: "desc" }
     });
     
@@ -243,12 +243,15 @@ const buildDateFilter = (req, field = "createdAt") => {
     invoices.forEach(inv => {
       inv.items.forEach(item => {
         if (toAmount(item.tipAmount) > 0) {
+          const paymentModes = inv.payments.map(p => p.mode).filter(Boolean).join(", ");
           tips.push({
-            date: new Date(inv.createdAt).toLocaleDateString(),
-            staff: item.staffUserSalon?.user?.name || item.staffName || "-",
-            customer: inv.customer?.name || "Walk-in",
-            invoiceNumber: inv.invoiceNumber,
-            tipAmount: toAmount(item.tipAmount)
+            "DATE": new Date(inv.createdAt).toISOString().slice(0, 10),
+            "GUEST NAME": inv.customer?.name || "Walk-in",
+            "GUEST NUMBER": inv.customer?.phone || "-",
+            "INVOICE NO": inv.invoiceNumber,
+            "STAFF": item.staffUserSalon?.user?.name || item.staffName || "-",
+            "TIP AMOUNT": toAmount(item.tipAmount),
+            "PAYMENT MODE": paymentModes || "-"
           });
         }
       });
