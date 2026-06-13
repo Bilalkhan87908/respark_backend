@@ -192,16 +192,39 @@ reportsRouter.get("/product-sales", async (req, res) => {
       invoice: { is: buildInvoiceWhere(req, branchId) },
       ...(isOwnScopedStaff(req, "reports") ? { staffUserSalonId: req.user.membershipId } : {})
     },
-    include: { product: true, invoice: true }
+    include: {
+      invoice: { include: { customer: true } },
+      product: { include: { category: true } },
+      staff: { include: { user: true } }
+    },
+    orderBy: { invoice: { createdAt: "desc" } }
   });
-  const grouped = {};
-  rows.forEach((row) => {
-    const key = row.productId || row.serviceName;
-    if (!grouped[key]) grouped[key] = { productId: row.productId, name: row.product?.name || row.serviceName, qty: 0, sales: 0 };
-    grouped[key].qty += Number(row.qty || 0);
-    grouped[key].sales += toAmount(row.lineTotal);
+
+  const formatted = rows.map(r => {
+    const isComplimentary = toAmount(r.lineTotal) === 0 && toAmount(r.unitPrice) > 0;
+    const dateObj = new Date(r.invoice?.createdAt || Date.now());
+
+    return {
+      "Date": dateObj.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, '-'),
+      "Time": dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+      "Guest Name": r.invoice?.customer?.name || "Walk-in",
+      "Guest Number": r.invoice?.customer?.phone || "-",
+      "Staff": r.staff?.user?.name || r.staffName || "-",
+      "Invoice No": r.invoice?.invoiceNumber || "-",
+      "Product": r.product?.name || r.serviceName,
+      "Category": r.product?.category?.name || "-",
+      "Qty": r.qty,
+      "Unit Price": toAmount(r.unitPrice),
+      "Discount": toAmount(r.unitPrice * r.qty) - toAmount(r.lineTotal) - toAmount(r.appliedBenefitValue || 0),
+      "Complimentary": isComplimentary ? "Yes" : "No",
+      "Redemption Amount": toAmount(r.appliedBenefitValue),
+      "Redemption Sources": r.appliedBenefitType || "-",
+      "Tax": toAmount(r.lineTotal * (Number(r.taxPct || 0) / 100)),
+      "Subtotal": toAmount(r.lineTotal),
+      "Total": toAmount(r.lineTotal) + toAmount(r.lineTotal * (Number(r.taxPct || 0) / 100))
+    };
   });
-  res.json(Object.values(grouped).sort((a, b) => b.sales - a.sales));
+  res.json(formatted);
 });
 
 reportsRouter.get("/service-sales", async (req, res) => {
