@@ -609,6 +609,7 @@ model WebsiteConfig {
   heroTitle    String?  @db.Text
   heroSubtitle String?  @db.Text
   heroImage    String?  @db.Text
+  sections     String?  @db.Text
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

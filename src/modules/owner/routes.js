@@ -1483,17 +1483,18 @@ ownerRouter.get("/website/config", requireSalonPermission("settings", "view"), a
     where: { salonId: req.salonId }
   });
   if (!config) {
-    config = { heroTitle: "", heroSubtitle: "", heroImage: "" };
+    config = { heroTitle: "", heroSubtitle: "", heroImage: "", sections: "[]" };
   }
-  res.json(config);
+  res.json({ ...config, sections: typeof config.sections === "string" ? JSON.parse(config.sections) : (config.sections || []) });
 });
 
 ownerRouter.post("/website/config", requireSalonPermission("settings", "edit"), async (req, res) => {
-  const { heroTitle, heroSubtitle, heroImage } = req.body;
+  const { heroTitle, heroSubtitle, heroImage, sections } = req.body;
+  const sectionsStr = Array.isArray(sections) ? JSON.stringify(sections) : "[]";
   const config = await prisma.websiteConfig.upsert({
     where: { salonId: req.salonId },
-    update: { heroTitle, heroSubtitle, heroImage },
-    create: { salonId: req.salonId, heroTitle, heroSubtitle, heroImage }
+    update: { heroTitle, heroSubtitle, heroImage, sections: sectionsStr },
+    create: { salonId: req.salonId, heroTitle, heroSubtitle, heroImage, sections: sectionsStr }
   });
   res.json(config);
 });
