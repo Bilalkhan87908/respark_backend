@@ -77,7 +77,7 @@ const normalizeIssueMessage = (issue) => {
     if (issue.origin === "string") {
       if (String(issue.path?.[issue.path.length - 1] || "").endsWith("Id")) return `${fieldLabel} is required`;
       if (issue.minimum <= 1) return `${fieldLabel} is required`;
-      if (issue.minimum <= 2) return `${fieldLabel} is required`;
+      if (issue.minimum <= 2) return `${fieldLabel} must be at least 2 characters`;
       return `${fieldLabel} must be at least ${issue.minimum} characters`;
     }
     if (issue.origin === "number") {
@@ -97,7 +97,18 @@ const normalizeIssueMessage = (issue) => {
     return `${fieldLabel} has an invalid value`;
   }
 
-  return issue.message;
+  if (issue.code === "invalid_enum_value") {
+    return `${fieldLabel} must be one of: ${issue.options?.join(", ") || "valid options"}`;
+  }
+
+  if (issue.code === "invalid_string") {
+    if (issue.validation === "email") return `${fieldLabel} must be a valid email address`;
+    if (issue.validation === "url") return `${fieldLabel} must be a valid URL`;
+    if (issue.validation === "regex") return `${fieldLabel} format is invalid`;
+    return `${fieldLabel} format is invalid`;
+  }
+
+  return issue.message || "Invalid value";
 };
 
 export const validate = (schema) => (req, res, next) => {
