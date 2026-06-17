@@ -120,7 +120,10 @@ export const registerInventoryRoutes = (ownerRouter) => {
     res.json(await prisma.product.update({ where: { id: product.id }, data: { isActive: false } }));
   });
 
-  ownerRouter.post("/inventory/stock-movements", requireFeatureEnabled("inventory"), requireSalonPermission("inventory", "edit"), validate(schemas.stockMovement), async (req, res) => {
+  ownerRouter.post("/inventory/stock-movements", requireFeatureEnabled("inventory"), requireSalonPermission("inventory", "edit"), attachSalonSettings, validate(schemas.stockMovement), async (req, res) => {
+    if (req.body.movementType === "CONSUMABLE_USAGE" && req.advancedSettings?.allowEditConsumable === false) {
+      return res.status(403).json({ message: "Consumable editing is restricted by salon settings" });
+    }
     const sign = ["STOCK_OUT", "CONSUMABLE_USAGE"].includes(req.body.movementType) ? -1 : 1;
     const movement = await prisma.$transaction((tx) => createStockMovement(tx, {
       salonId: req.salonId,

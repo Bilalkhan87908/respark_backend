@@ -3,7 +3,7 @@ import { attemptCustomerTemplateEmail } from "../../../lib/emailNotifications.js
 import { prisma } from "../../../lib/prisma.js";
 import { addInvoicePayment, createPosInvoice, generatePaymentLink, getDayClosingSummary, logPaymentLinkPlaceholder, refundInvoice } from "../../../lib/pos.js";
 import { attachBranchStock, normalizeBranchId, toAmount } from "../../../lib/phase2.js";
-import { requireFeatureEnabled, requireSalonPermission } from "../../../middlewares/rbac.js";
+import { attachSalonSettings, requireFeatureEnabled, requireSalonPermission } from "../../../middlewares/rbac.js";
 import { schemas, validate } from "../../../middlewares/validate.js";
 
 const withBranchFilter = (salonId, branchId) => ({ salonId, ...(branchId ? { branchId } : {}) });
@@ -256,7 +256,7 @@ export const registerBillingRoutes = (ownerRouter) => {
     res.json(invoice);
   });
 
-  ownerRouter.patch("/invoices/:id", requireSalonPermission("invoices", "edit"), async (req, res) => {
+  ownerRouter.patch("/invoices/:id", requireSalonPermission("invoices", "edit"), attachSalonSettings, async (req, res) => {
     const existingInvoice = await prisma.invoice.findFirst({
       where: { id: req.params.id, salonId: req.salonId },
       include: {
@@ -272,14 +272,29 @@ export const registerBillingRoutes = (ownerRouter) => {
       return res.status(400).json({ message: "This invoice cannot be edited" });
     }
 
+    const allowPriceEdit = req.advancedSettings?.allowPriceEditOnBill !== false;
+    const allowEditConsumable = req.advancedSettings?.allowEditConsumable !== false;
+
     const rawItems = Array.isArray(req.body?.items) ? req.body.items : [];
     if (!rawItems.length) return res.status(400).json({ message: "At least one invoice item is required" });
 
     try {
       const sanitizedItems = [];
       for (const rawItem of rawItems) {
+        if (rawItem.itemType === "PRODUCT" && !allowEditConsumable) {
+          const existingItem = existingInvoice.items.find((i) => i.id === rawItem.id);
+          if (existingItem && (rawItem.qty !== undefined && Number(rawItem.qty) !== existingItem.qty)) {
+            return res.status(403).json({ message: "Consumable editing is restricted by salon settings" });
+          }
+        }
         const qty = Math.max(1, Number(rawItem?.qty || 1));
         const unitPrice = Math.max(0, toAmount(rawItem?.unitPrice || 0));
+        if (!allowPriceEdit) {
+          const existingItem = existingInvoice.items.find((i) => i.id === rawItem.id);
+          if (existingItem && unitPrice !== toAmount(existingItem.unitPrice)) {
+            return res.status(403).json({ message: "Price edits on the bill are restricted by salon settings" });
+          }
+        }
         const taxPct = Math.max(0, toAmount(rawItem?.taxPct || 0));
         const lineBase = unitPrice * qty;
         const lineTax = (lineBase * taxPct) / 100;

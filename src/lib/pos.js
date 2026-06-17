@@ -117,8 +117,25 @@ export const createPosInvoice = async ({ salonId, actorUser, body }) => {
   const salonSettings = await prisma.salonSetting.findFirst({ where: { salonId, branchId: null } });
   const advancedSettings = typeof salonSettings?.advancedSettings === "object" ? salonSettings.advancedSettings : {};
   const allowPriceEdit = advancedSettings?.allowPriceEditOnBill !== false;
+  const allowFutureBackdatedBills = advancedSettings?.allowFutureBackdatedBills === true;
+  const allowEditConsumable = advancedSettings?.allowEditConsumable !== false;
   const membershipSettings = typeof advancedSettings?.membershipSettings === "object" ? advancedSettings.membershipSettings : {};
   const inclusiveTax = advancedSettings?.taxMapping?.inclusiveTax === true;
+
+  if (!allowFutureBackdatedBills && body.invoiceDate) {
+    const invoiceDate = new Date(body.invoiceDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (invoiceDate >= tomorrow || invoiceDate < yesterday) {
+      const error = new Error("Future or backdated bills are restricted by salon settings");
+      error.status = 400;
+      throw error;
+    }
+  }
 
   const itemDrafts = [];
   for (const item of body.items) {

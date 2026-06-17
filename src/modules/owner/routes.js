@@ -6,7 +6,7 @@ import { attachBranchStock, refreshCustomerInsights } from "../../lib/phase2.js"
 import { getCampaignAudience, getSalonGenericSettings } from "../../lib/phase3.js";
 import { createAuditLog } from "../../lib/phase4.js";
 import { patchRouterForAsync } from "../../lib/async-handler.js";
-import { requireAuth, requireMaintenanceAccess, requireSalonContext, requireSalonPermission } from "../../middlewares/rbac.js";
+import { requireAuth, requireMaintenanceAccess, requireSalonContext, requireSalonPermission, attachSalonSettings } from "../../middlewares/rbac.js";
 import { schemas, validate } from "../../middlewares/validate.js";
 import { registerPhase2OwnerRoutes } from "./phase2/index.js";
 import { registerPhase3OwnerRoutes } from "./phase3/index.js";
@@ -1155,6 +1155,22 @@ ownerRouter.get("/customers/:id", requireSalonPermission("customers", "view"), a
   res.json(customer);
 });
 
+ownerRouter.get("/users/export.csv", requireSalonPermission("staff", "view"), attachSalonSettings, async (req, res) => {
+  const accessControl = req.advancedSettings?.accessControl || {};
+  if (accessControl.allowStaffExport === false) return res.status(403).json({ message: "Staff export is restricted by salon settings" });
+  const branchId = normalizeBranchId(req.query.branchId);
+  const rows = await prisma.userSalon.findMany({
+    where: { salonId: req.salonId, isArchived: false, ...(branchId ? { OR: [{ branchId }, { branchId: null }] } : {}) },
+    include: { user: true, branch: true, customRole: true }
+  });
+  const csv = buildCsv(
+    ["Name", "Email", "Phone", "Role", "Branch", "CustomRole", "Joined"],
+    rows.map((row) => [row.user?.name || "", row.user?.email || "", row.user?.phone || "", row.salonRole || "", row.branch?.name || "All", row.customRole?.name || "", row.joiningDate ? new Date(row.joiningDate).toLocaleDateString() : ""])
+  );
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", "attachment; filename=\"staff-export.csv\"");
+  res.send(csv);
+});
 ownerRouter.get("/users", requireSalonPermission("staff", "view"), async (req, res) => {
   const branchId = normalizeBranchId(req.query.branchId);
   const showArchived = req.query.archived === "true";
@@ -1179,7 +1195,12 @@ ownerRouter.get("/custom-roles", requireSalonPermission("staff", "view"), async 
     orderBy: { createdAt: "desc" }
   }));
 });
-ownerRouter.post("/custom-roles", requireSalonPermission("staff", "create"), validate(schemas.customRole), async (req, res) => {
+ownerRouter.post("/custom-roles", requireSalonPermission("staff", "create"), attachSalonSettings, validate(schemas.customRole), async (req, res) => {
+  const accessControl = req.advancedSettings?.accessControl || {};
+  if (accessControl.approvalRequiredForRoleEdits) {
+    const approvedBy = req.body.approvedBy || req.headers["x-approval-token"];
+    if (!approvedBy) return res.status(403).json({ message: "Role creation requires approval. Provide approvedBy or x-approval-token header." });
+  }
   const existing = await prisma.customRole.findFirst({ where: { salonId: req.salonId, name: req.body.name } });
   if (existing) return res.status(400).json({ message: "A custom role with this name already exists" });
   res.status(201).json(await prisma.customRole.create({
@@ -1191,7 +1212,12 @@ ownerRouter.post("/custom-roles", requireSalonPermission("staff", "create"), val
     }
   }));
 });
-ownerRouter.patch("/custom-roles/:id", requireSalonPermission("staff", "edit"), validate(schemas.customRole), async (req, res) => {
+ownerRouter.patch("/custom-roles/:id", requireSalonPermission("staff", "edit"), attachSalonSettings, validate(schemas.customRole), async (req, res) => {
+  const accessControl = req.advancedSettings?.accessControl || {};
+  if (accessControl.approvalRequiredForRoleEdits) {
+    const approvedBy = req.body.approvedBy || req.headers["x-approval-token"];
+    if (!approvedBy) return res.status(403).json({ message: "Role edits require approval. Provide approvedBy or x-approval-token header." });
+  }
   const role = await prisma.customRole.findFirst({ where: { id: req.params.id, salonId: req.salonId } });
   if (!role) return res.status(404).json({ message: "Custom role not found" });
   res.json(await prisma.customRole.update({
@@ -1211,10 +1237,15 @@ ownerRouter.post("/staff-users", requireSalonPermission("staff", "create"), vali
   const result = await createLoginUserForSalon(req.salonId, req.body);
   res.status(result.status).json(result.body);
 });
-ownerRouter.patch("/users/:id", requireSalonPermission("staff", "edit"), validate(schemas.userMembershipUpdate), async (req, res) => {
+ownerRouter.patch("/users/:id", requireSalonPermission("staff", "edit"), attachSalonSettings, validate(schemas.userMembershipUpdate), async (req, res) => {
   const row = await prisma.userSalon.findFirst({ where: { id: req.params.id, salonId: req.salonId } });
   if (!row) return res.status(404).json({ message: "User mapping not found" });
-  const branchId = req.body.branchId === null ? null : normalizeBranchId(req.body.branchId ?? row.branchId);
+  const accessControl = req.advancedSettings?.accessControl || {};
+  let branchId = req.body.branchId === null ? null : normalizeBranchId(req.body.branchId ?? row.branchId);
+  if (accessControl.branchScopedDefault && !branchId) {
+    const firstBranch = await prisma.branch.findFirst({ where: { salonId: req.salonId } });
+    if (firstBranch) branchId = firstBranch.id;
+  }
   const customRoleId = req.body.customRoleId === null ? null : (req.body.customRoleId ?? row.customRoleId ?? null);
   if (branchId) await ensureBranch(req.salonId, branchId);
   const resolvedPermissions = await resolveMembershipPermissions(req.salonId, customRoleId, req.body.permissions);
@@ -1402,6 +1433,16 @@ ownerRouter.post("/support-tickets/:id/messages", requireSalonPermission("suppor
 ownerRouter.get("/settings", requireSalonPermission("settings", "view"), async (req, res) => {
   const row = await prisma.salonSetting.findFirst({ where: { salonId: req.salonId, branchId: null } });
   res.json(row);
+});
+ownerRouter.get("/settings/shifts", requireSalonPermission("settings", "view"), async (req, res) => {
+  const row = await prisma.salonSetting.findFirst({ where: { salonId: req.salonId, branchId: null }, select: { advancedSettings: true } });
+  const advanced = typeof row?.advancedSettings === "object" ? row.advancedSettings : {};
+  res.json(advanced.shiftManagement || { shifts: [] });
+});
+ownerRouter.get("/settings/designations", requireSalonPermission("settings", "view"), async (req, res) => {
+  const row = await prisma.salonSetting.findFirst({ where: { salonId: req.salonId, branchId: null }, select: { advancedSettings: true } });
+  const advanced = typeof row?.advancedSettings === "object" ? row.advancedSettings : {};
+  res.json(advanced.designations || []);
 });
 ownerRouter.post("/settings", requireSalonPermission("settings", "edit"), validate(schemas.salonSettings), async (req, res) => {
   const branchId = req.body.branchId || null;

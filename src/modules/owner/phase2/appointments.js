@@ -14,7 +14,9 @@ const sendRouteError = (res, error, fallbackMessage) => {
 };
 
 const notifyAppointmentEmail = async (salonId, appointment, templateType, extraVariables = {}) => {
-  await attemptCustomerTemplateEmail({
+  const genericSettings = await getSalonGenericSettings(salonId);
+  if (genericSettings.sendAppointmentSms === false) return { sent: false, reason: "appointment_sms_disabled" };
+  return attemptCustomerTemplateEmail({
     salonId,
     toEmail: appointment?.customer?.email || "",
     templateType,
@@ -450,14 +452,24 @@ export const registerAppointmentRoutes = (ownerRouter) => {
 
   ownerRouter.post("/staff-schedule", requireSalonPermission("staffSchedule", "edit"), validate(schemas.staffSchedule), async (req, res) => {
     const membership = await ensureScopedStaffMembership(req.salonId, req.body.userSalonId);
+    const settings = await prisma.salonSetting.findFirst({ where: { salonId: req.salonId, branchId: null }, select: { advancedSettings: true } });
+    const adv = typeof settings?.advancedSettings === "object" ? settings.advancedSettings : {};
+    if (adv.allowRosterMgtSettings === false) return res.status(403).json({ message: "Roster management is disabled in salon settings" });
+    const shiftTemplate = (adv.shiftManagement?.shifts || []).find((s) => s.active !== false && (s.days || []).includes(req.body.weekday));
+    const startTime = req.body.startTime || shiftTemplate?.startTime || "09:00";
+    const endTime = req.body.endTime || shiftTemplate?.endTime || "21:00";
+    const isOffDay = req.body.isOffDay != null ? Boolean(req.body.isOffDay) : (shiftTemplate?.active === false);
     res.status(201).json(await prisma.staffSchedule.upsert({
       where: { userSalonId_weekday: { userSalonId: membership.id, weekday: req.body.weekday } },
-      update: { branchId: req.body.branchId || null, startTime: req.body.startTime, endTime: req.body.endTime, isOffDay: Boolean(req.body.isOffDay) },
-      create: { salonId: req.salonId, branchId: req.body.branchId || null, userSalonId: membership.id, weekday: req.body.weekday, startTime: req.body.startTime, endTime: req.body.endTime, isOffDay: Boolean(req.body.isOffDay) }
+      update: { branchId: req.body.branchId || null, startTime, endTime, isOffDay },
+      create: { salonId: req.salonId, branchId: req.body.branchId || null, userSalonId: membership.id, weekday: req.body.weekday, startTime, endTime, isOffDay }
     }));
   });
 
-  ownerRouter.post("/staff-breaks", requireSalonPermission("staffSchedule", "edit"), validate(schemas.staffBreak), async (req, res) => {
+  ownerRouter.post("/staff-breaks", requireSalonPermission("staffSchedule", "edit"), async (req, res) => {
+    const settings = await prisma.salonSetting.findFirst({ where: { salonId: req.salonId, branchId: null }, select: { advancedSettings: true } });
+    const adv = typeof settings?.advancedSettings === "object" ? settings.advancedSettings : {};
+    if (adv.accessControl?.allowRosterOverrides === false) return res.status(403).json({ message: "Roster overrides are restricted by salon settings" });
     const membership = await ensureScopedStaffMembership(req.salonId, req.body.userSalonId);
     res.status(201).json(await prisma.staffBreak.create({
       data: {

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../../lib/prisma.js";
 import { attachBranchStock, buildCsv, isOwnScopedStaff, normalizeBranchId, toAmount } from "../../lib/phase2.js";
-import { requireAuth, requireFeatureEnabled, requireSalonContext, requireSalonPermission } from "../../middlewares/rbac.js";
+import { requireAuth, requireFeatureEnabled, requireSalonContext, requireSalonPermission, attachSalonSettings } from "../../middlewares/rbac.js";
 import { registerExtendedReports } from "./routes-extended.js";
 
 export const reportsRouter = Router();
@@ -418,7 +418,8 @@ reportsRouter.get("/cancelled-invoices", async (req, res) => {
 
 registerExtendedReports(reportsRouter, prisma, buildInvoiceWhere);
 
-reportsRouter.get("/export.csv", async (req, res) => {
+reportsRouter.get("/export.csv", attachSalonSettings, async (req, res) => {
+  if (req.advancedSettings?.allowReportDownloading === false) return res.status(403).json({ message: "Report downloading is restricted by salon settings" });
   const branchId = normalizeBranchId(req.query.branchId);
   const invoices = await prisma.invoice.findMany({
     where: buildInvoiceWhere(req, branchId),
@@ -445,7 +446,8 @@ reportsRouter.get("/export.csv", async (req, res) => {
   res.send(csv);
 });
 
-reportsRouter.get("/export.xls", async (req, res) => {
+reportsRouter.get("/export.xls", attachSalonSettings, async (req, res) => {
+  if (req.advancedSettings?.allowReportDownloading === false) return res.status(403).json({ message: "Report downloading is restricted by salon settings" });
   const branchId = normalizeBranchId(req.query.branchId);
   const invoices = await prisma.invoice.findMany({
     where: buildInvoiceWhere(req, branchId),

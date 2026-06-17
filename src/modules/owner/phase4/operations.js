@@ -2,7 +2,7 @@ import { prisma } from "../../../lib/prisma.js";
 import { randomUUID } from "node:crypto";
 import { calculatePayrollItem, createAuditLog, createStaffNotification } from "../../../lib/phase4.js";
 import { buildCsv } from "../../../lib/phase2.js";
-import { requireFeatureEnabled, requireSalonPermission } from "../../../middlewares/rbac.js";
+import { attachSalonSettings, requireFeatureEnabled, requireSalonPermission } from "../../../middlewares/rbac.js";
 import { schemas, validate } from "../../../middlewares/validate.js";
 
 const toDate = (value) => (value ? new Date(value) : null);
@@ -86,7 +86,10 @@ export const registerOperationsRoutes = (ownerRouter) => {
       orderBy: { expenseDate: "desc" }
     }));
   });
-  ownerRouter.post("/expenses", requireFeatureEnabled("expenses"), requireSalonPermission("expenses", "create"), validate(schemas.expense), async (req, res) => {
+  ownerRouter.post("/expenses", requireFeatureEnabled("expenses"), requireSalonPermission("expenses", "create"), attachSalonSettings, validate(schemas.expense), async (req, res) => {
+    const expenseSettings = req.advancedSettings?.expenseSettings || {};
+    const autoApprove = expenseSettings.autoApprove === true;
+    const initialStatus = autoApprove ? "APPROVED" : (req.body.status || "PENDING");
     const row = await prisma.expense.create({
       data: {
         salonId: req.salonId,
@@ -98,7 +101,8 @@ export const registerOperationsRoutes = (ownerRouter) => {
         amount: req.body.amount,
         expenseDate: new Date(req.body.expenseDate),
         paymentMode: req.body.paymentMode || null,
-        status: req.body.status || "PENDING",
+        status: initialStatus,
+        ...(autoApprove ? { approvedByMembershipId: req.user.membershipId || null } : {}),
         notes: req.body.notes || null,
         receiptUrl: req.body.receiptUrl || null,
         attachmentUrl: req.body.attachmentUrl || null

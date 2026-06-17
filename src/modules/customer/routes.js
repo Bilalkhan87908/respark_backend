@@ -76,6 +76,12 @@ customerRouter.post("/register", validate(schemas.customerRegister), asyncHandle
   const salon = await prisma.salon.findUnique({ where: { slug: req.body.salonSlug } });
   if (!salon) return res.status(404).json({ message: "Salon not found" });
   await ensureCustomerPortalEnabledBySalonId(salon.id);
+  const salonSettings = await prisma.salonSetting.findFirst({ where: { salonId: salon.id, branchId: null }, select: { advancedSettings: true } });
+  const advancedSettings = typeof salonSettings?.advancedSettings === "object" ? salonSettings.advancedSettings : {};
+  const otpRequired = advancedSettings.genericSettings?.otpValidationOnRegistration === true;
+  if (otpRequired && !req.body.otpCode) {
+    return res.status(400).json({ message: "OTP verification is required for registration. Provide otpCode." });
+  }
   const email = req.body.email || `${req.body.phone.replace(/[^\d]/g, "")}@customer.local`;
   const existingUser = await prisma.user.findUnique({ where: { email } });
   if (existingUser) return res.status(400).json({ message: "Customer account already exists for this email/phone" });
