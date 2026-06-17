@@ -58,7 +58,26 @@ const writeExpenseAccountConfig = async (salonId, advancedSettings, injections) 
 
 export const registerOperationsRoutes = (ownerRouter) => {
   ownerRouter.get("/expense-categories", requireFeatureEnabled("expenses"), requireSalonPermission("expenses", "view"), async (req, res) => {
-    res.json(await prisma.expenseCategory.findMany({ where: { salonId: req.salonId }, orderBy: { name: "asc" } }));
+    let cats = await prisma.expenseCategory.findMany({ where: { salonId: req.salonId }, orderBy: { name: "asc" } });
+    if (cats.length === 0) {
+      const defaults = [
+        { name: "Rent", description: "Salon space rental" },
+        { name: "Utilities", description: "Electricity, water, internet" },
+        { name: "Salaries", description: "Staff salaries and wages" },
+        { name: "Inventory", description: "Product purchases and stock" },
+        { name: "Marketing", description: "Advertising and promotions" },
+        { name: "Maintenance", description: "Equipment repair and upkeep" },
+        { name: "Supplies", description: "General salon supplies" },
+        { name: "Insurance", description: "Business insurance premiums" },
+        { name: "Professional Development", description: "Training and certifications" },
+        { name: "Miscellaneous", description: "Other expenses" }
+      ];
+      for (const cat of defaults) {
+        await prisma.expenseCategory.create({ data: { salonId: req.salonId, name: cat.name, description: cat.description } });
+      }
+      cats = await prisma.expenseCategory.findMany({ where: { salonId: req.salonId }, orderBy: { name: "asc" } });
+    }
+    res.json(cats);
   });
   ownerRouter.post("/expense-categories", requireFeatureEnabled("expenses"), requireSalonPermission("expenses", "create"), validate(schemas.expenseCategory), async (req, res) => {
     res.status(201).json(await prisma.expenseCategory.create({ data: { salonId: req.salonId, name: req.body.name, description: req.body.description || null } }));

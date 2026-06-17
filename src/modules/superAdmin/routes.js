@@ -123,6 +123,25 @@ superAdminRouter.post("/salons", validate(schemas.salon), asyncHandler(async (re
       }
     });
 
+    const defaultExpenseCategories = [
+      { name: "Rent", description: "Salon space rental" },
+      { name: "Utilities", description: "Electricity, water, internet" },
+      { name: "Salaries", description: "Staff salaries and wages" },
+      { name: "Inventory", description: "Product purchases and stock" },
+      { name: "Marketing", description: "Advertising and promotions" },
+      { name: "Maintenance", description: "Equipment repair and upkeep" },
+      { name: "Supplies", description: "General salon supplies" },
+      { name: "Insurance", description: "Business insurance premiums" },
+      { name: "Professional Development", description: "Training and certifications" },
+      { name: "Miscellaneous", description: "Other expenses" }
+    ];
+
+    for (const cat of defaultExpenseCategories) {
+      await tx.expenseCategory.create({
+        data: { salonId: createdSalon.id, name: cat.name, description: cat.description }
+      });
+    }
+
     if (ownerEmail && ownerName && ownerPassword) {
       const owner = await tx.user.create({
         data: {
