@@ -668,70 +668,82 @@ export const registerBillingRoutes = (ownerRouter) => {
       const rate = Number(item.unitPrice || 0);
       const qty = Number(item.qty || 1);
       const amt = Number(item.lineTotal || rate * qty);
-      const discLabel = Number(item.appliedBenefitValue) > 0
-        ? `<div style="font-size:11px;color:#94a3b8;">Disc: ${Number(item.unitPrice) > 0 ? ((Number(item.appliedBenefitValue) / Number(item.unitPrice)) * 100).toFixed(2) : "0"}%</div>`
-        : "";
-      return `<tr>
-        <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;font-weight:600;color:#0f172a;">${item.serviceName || "Item"}${discLabel}</td>
-        <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;text-align:center;color:#0f172a;">${qty}</td>
-        <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;text-align:right;color:#0f172a;">${fmt(rate)}</td>
-        <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:600;color:#0f172a;">${fmt(amt)}</td>
-      </tr>`;
+      return `<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px dashed #e2e8f0;">
+        <div style="flex:1;">
+          <div style="font-weight:600;color:#0f172a;font-size:13px;">${item.serviceName || "Item"}</div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:3px;font-family:'Courier New',monospace;">${qty} &times; ${fmt(rate)}</div>
+        </div>
+        <div style="font-weight:700;color:#0f172a;font-size:13px;text-align:right;min-width:80px;font-family:'Courier New',monospace;">${fmt(amt)}</div>
+      </div>`;
     }).join("");
 
-    const appliedBenefits = [
-      inv.couponCode ? `<tr><td colspan="3" style="padding:4px 10px;color:#64748b;">Coupon</td><td style="padding:4px 10px;text-align:right;color:#64748b;">${inv.couponCode}</td></tr>` : "",
-      inv.giftVoucherCode ? `<tr><td colspan="3" style="padding:4px 10px;color:#64748b;">Gift Card</td><td style="padding:4px 10px;text-align:right;color:#64748b;">${inv.giftVoucherCode}</td></tr>` : "",
-      inv.loyaltyPointsUsed ? `<tr><td colspan="3" style="padding:4px 10px;color:#64748b;">Loyalty Points</td><td style="padding:4px 10px;text-align:right;color:#64748b;">${inv.loyaltyPointsUsed} pts</td></tr>` : ""
-    ].join("");
+    const subtotal = fmt(inv.subtotal);
+    const discountAmt = Number(inv.discount) > 0 ? `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px;"><span style="color:#22c55e;">Discount</span><span style="color:#22c55e;font-family:'Courier New',monospace;">- ${fmt(inv.discount)}</span></div>` : "";
+    const taxAmt = Number(inv.tax) > 0 ? `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px;"><span style="color:#f59e0b;">Tax</span><span style="color:#f59e0b;font-family:'Courier New',monospace;">+ ${fmt(inv.tax)}</span></div>` : "";
+    const paidAmt = Number(inv.paidAmount) > 0 ? `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px;"><span style="color:#22c55e;">Paid</span><span style="color:#22c55e;font-family:'Courier New',monospace;">${fmt(inv.paidAmount)}</span></div>` : "";
+    const balAmt = Number(inv.balanceAmount) > 0 ? `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px;"><span style="color:#ef4444;">Balance Due</span><span style="color:#ef4444;font-family:'Courier New',monospace;">${fmt(inv.balanceAmount)}</span></div>` : "";
 
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${inv.invoiceNumber}</title></head><body style="font-family:'Segoe UI',sans-serif;padding:24px;background:#f8fafc;margin:0;">
-    <div style="max-width:700px;margin:0 auto;background:#fff;border-radius:8px;border:1px solid #e2e8f0;overflow:hidden;">
-      <div style="background:#0f172a;color:#fff;padding:14px 20px;text-align:center;font-size:16px;font-weight:700;">Bill Invoice</div>
-      <div style="padding:20px 24px;text-align:center;border-bottom:1px dashed #cbd5e1;">
-        <div style="font-size:18px;font-weight:700;color:#0f172a;">${salonName}</div>
-        ${inv.branch?.address ? `<div style="font-size:12px;color:#64748b;margin-top:4px;">${inv.branch.address}</div>` : ""}
-        ${inv.branch?.phone ? `<div style="font-size:12px;color:#64748b;">Phone: ${inv.branch.phone}</div>` : ""}
-      </div>
-      <div style="padding:16px 24px;background:#f8fafc;border-bottom:1px dashed #cbd5e1;">
-        <div style="font-size:12px;font-weight:600;color:#64748b;margin-bottom:8px;">GUEST DETAILS</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 20px;font-size:13px;">
-          <div><strong>Invoice:</strong> ${inv.invoiceNumber}</div>
-          <div><strong>Date:</strong> ${new Date(inv.createdAt).toLocaleDateString('en-GB').replace(/\//g, '-')}</div>
-          <div><strong>Name:</strong> ${inv.customer?.name || "Walk-in Customer"}</div>
-          <div><strong>Phone:</strong> ${inv.customer?.phone || "-"}</div>
-        </div>
-      </div>
-      <div style="padding:0;">
-        <div style="background:#0f172a;color:#fff;padding:10px 20px;font-size:13px;font-weight:600;">Bill Invoice</div>
-        <table style="width:100%;border-collapse:collapse;">
-          <thead>
-            <tr style="background:#f8fafc;">
-              <th style="padding:10px;text-align:left;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0;">Item</th>
-              <th style="padding:10px;text-align:center;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0;">Qty</th>
-              <th style="padding:10px;text-align:right;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0;">Rate</th>
-              <th style="padding:10px;text-align:right;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0;">Total</th>
-            </tr>
-          </thead>
-          <tbody>${items}</tbody>
-          <tfoot>
-            ${appliedBenefits}
-            <tr><td colspan="3" style="padding:10px 10px;border-top:1px solid #e2e8f0;font-weight:600;color:#64748b;">Subtotal</td><td style="padding:10px;text-align:right;border-top:1px solid #e2e8f0;font-weight:600;color:#0f172a;">Rs ${fmt(inv.subtotal)}</td></tr>
-            ${Number(inv.discount) > 0 ? `<tr><td colspan="3" style="padding:4px 10px;color:#64748b;">Discount</td><td style="padding:4px 10px;text-align:right;color:#22c55e;font-weight:600;">- Rs ${fmt(inv.discount)}</td></tr>` : ""}
-            ${Number(inv.tax) > 0 ? `<tr><td colspan="3" style="padding:4px 10px;color:#64748b;">Tax</td><td style="padding:4px 10px;text-align:right;color:#f59e0b;font-weight:600;">+ Rs ${fmt(inv.tax)}</td></tr>` : ""}
-          </tfoot>
-        </table>
-      </div>
-      <div style="padding:16px 24px;border-top:2px solid #0f172a;">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:16px;font-weight:700;color:#0f172a;">Total</span>
-          <span style="font-size:18px;font-weight:700;color:#0f172a;">Rs ${fmt(inv.total)}</span>
-        </div>
-        ${Number(inv.paidAmount) > 0 ? `<div style="display:flex;justify-content:space-between;margin-top:8px;font-size:13px;"><span style="font-weight:600;color:#0f172a;">Paid by:</span><span style="font-weight:600;color:#166534;">Rs ${fmt(inv.paidAmount)}</span></div>` : ""}
-        ${Number(inv.balanceAmount) > 0 ? `<div style="display:flex;justify-content:space-between;margin-top:4px;font-size:13px;"><span style="font-weight:600;color:#0f172a;">Balance Due:</span><span style="font-weight:600;color:#991b1b;">Rs ${fmt(inv.balanceAmount)}</span></div>` : ""}
-      </div>
-      <div style="padding:16px 24px;border-top:1px dashed #cbd5e1;text-align:center;font-size:13px;color:#64748b;">${footer}</div>
-    </div></body></html>`;
+    const paymentRows = (inv.payments || []).map(p =>
+      `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:10px;"><span style="color:#94a3b8;text-transform:uppercase;font-weight:600;">${p.mode}</span><span style="color:#64748b;font-family:'Courier New',monospace;">${fmt(p.amount)}</span></div>`
+    ).join("");
+
+    const barcode = Array.from({ length: 48 }, (_, i) => {
+      const w = [1,2,3,1,2,1,3,2,1,2][i % 10];
+      const h = 24 + (i % 4) * 4;
+      return `<div style="width:${w}px;height:${h}px;background:#0f172a;border-radius:0.5px;opacity:${0.75 + (i%3)*0.08};"></div>`;
+    }).join("");
+
+    const invDate = new Date(inv.createdAt);
+    const dateStr = invDate.toLocaleDateString("en-GB", { day:"2-digit", month:"2-digit", year:"numeric" }).replace(/\//g,"-");
+    const timeStr = invDate.toLocaleTimeString("en-US", { hour:"2-digit", minute:"2-digit", hour12:true });
+    const statusUp = (inv.status || "UNPAID").toUpperCase();
+    const statusColor = { PAID: "#166534", UNPAID: "#dc2626", PARTIAL: "#d97706", CANCELLED: "#475569" }[statusUp] || "#475569";
+    const statusBg = { PAID: "#dcfce7", UNPAID: "#fef2f2", PARTIAL: "#fffbeb", CANCELLED: "#f1f5f9" }[statusUp] || "#f1f5f9";
+
+    const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Invoice ${inv.invoiceNumber}</title>
+<style>@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');*{margin:0;padding:0;box-sizing:border-box;}</style>
+</head><body style="font-family:'Inter',sans-serif;background:#1e293b;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px 16px;">
+<div style="width:380px;max-width:100%;background:#fff;border-radius:16px;box-shadow:0 25px 60px -12px rgba(0,0,0,0.35);overflow:hidden;">
+  <div style="padding:0 24px 24px;">
+    <div style="text-align:center;padding:20px 0 4px;">
+      <div style="font-size:26px;font-weight:900;letter-spacing:3px;color:#0f172a;">${salonName.toUpperCase()}</div>
+      <div style="font-size:9px;letter-spacing:3.5px;color:#94a3b8;margin-top:4px;text-transform:uppercase;font-weight:600;">Hair &middot; Lifestyle &middot; Care</div>
+      ${inv.branch?.address ? `<div style="font-size:11px;color:#64748b;margin-top:6px;line-height:1.6;">${inv.branch.address}${inv.branch?.phone ? `<br>${inv.branch.phone}` : ""}</div>` : ""}
+    </div>
+    <div style="border-top:1px dashed #cbd5e1;margin:14px 0;"></div>
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:12px;">
+      <span style="color:#94a3b8;font-size:11px;font-weight:500;">Invoice No</span><span style="color:#0f172a;font-weight:600;text-align:right;font-family:'Courier New',monospace;">${inv.invoiceNumber || "—"}</span>
+      <span style="color:#94a3b8;font-size:11px;font-weight:500;">Date</span><span style="color:#0f172a;font-weight:600;text-align:right;font-family:'Courier New',monospace;">${dateStr}</span>
+      <span style="color:#94a3b8;font-size:11px;font-weight:500;">Time</span><span style="color:#0f172a;font-weight:600;text-align:right;font-family:'Courier New',monospace;">${timeStr}</span>
+      <span style="color:#94a3b8;font-size:11px;font-weight:500;">Status</span><span style="text-align:right;"><span style="display:inline-flex;align-items:center;border-radius:6px;padding:2px 8px;font-size:10px;font-weight:700;letter-spacing:0.5px;color:${statusColor};background:${statusBg};border:1px solid ${statusColor}22;">${statusUp}</span></span>
+    </div>
+    <div style="border-top:1px dashed #cbd5e1;margin:14px 0;"></div>
+    <div style="margin-bottom:4px;">
+      <div style="font-size:9px;color:#94a3b8;letter-spacing:2.5px;text-transform:uppercase;font-weight:700;">Bill To</div>
+      <div style="font-weight:700;font-size:14px;color:#0f172a;margin-top:2px;">${inv.customer?.name || "Walk-in Customer"}</div>
+      ${inv.customer?.phone ? `<div style="font-size:11px;color:#64748b;margin-top:1px;font-family:'Courier New',monospace;">${inv.customer.phone}</div>` : ""}
+    </div>
+    <div style="border-top:1px dashed #cbd5e1;margin:14px 0;"></div>
+    <div>${items || '<div style="text-align:center;color:#94a3b8;font-size:12px;padding:14px 0;">No items</div>'}</div>
+    <div style="border-top:1px dashed #cbd5e1;margin:14px 0 0;"></div>
+    <div style="margin-top:8px;">
+      <div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748b;font-size:12px;">Subtotal</span><span style="font-family:'Courier New',monospace;font-size:12px;">${subtotal}</span></div>
+      ${discountAmt}${taxAmt}
+      <div style="display:flex;justify-content:space-between;align-items:baseline;padding:14px 0 6px;border-top:2px solid #0f172a;margin-top:8px;"><span style="font-weight:800;font-size:14px;color:#0f172a;letter-spacing:0.5px;">Grand Total</span><span style="font-family:'Courier New',monospace;font-weight:900;font-size:22px;color:#0f172a;">${fmt(inv.total)}</span></div>
+      ${paidAmt}${balAmt}
+      ${paymentRows ? `<div style="border-top:1px dashed #cbd5e1;margin:10px 0 6px;"></div>${paymentRows}` : ""}
+    </div>
+    <div style="border-top:1px dashed #cbd5e1;margin:16px 0 0;"></div>
+    <div style="text-align:center;padding:16px 0 20px;">
+      <div style="font-size:15px;font-weight:800;color:#0f172a;letter-spacing:1.5px;margin-bottom:4px;">Thank You!</div>
+      <div style="font-size:10px;color:#94a3b8;letter-spacing:2px;font-weight:600;">Visit Again</div>
+      <div style="margin:14px auto 0;width:75%;height:36px;display:flex;align-items:flex-end;justify-content:center;gap:1.5px;">${barcode}</div>
+      <div style="font-size:9px;color:#cbd5e1;margin-top:8px;letter-spacing:2px;font-family:'Courier New',monospace;">${inv.invoiceNumber || "—"}</div>
+    </div>
+  </div>
+  <svg viewBox="0 0 380 16" preserveAspectRatio="none" style="display:block;width:100%;height:16px;"><polygon points="0,0 19,16 38,0 57,16 76,0 95,16 114,0 133,16 152,0 171,16 190,0 209,16 228,0 247,16 266,0 285,16 304,0 323,16 342,0 361,16 380,0 380,16 0,16" fill="#fff"/><polyline points="0,0 19,16 38,0 57,16 76,0 95,16 114,0 133,16 152,0 171,16 190,0 209,16 228,0 247,16 266,0 285,16 304,0 323,16 342,0 361,16 380,0" fill="none" stroke="#e2e8f0" stroke-width="1"/></svg>
+</div>
+</body></html>`;
     res.setHeader("Content-Type", "text/html");
     res.send(html);
   });
@@ -746,81 +758,98 @@ export const registerBillingRoutes = (ownerRouter) => {
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `inline; filename="invoice-${inv.invoiceNumber}.pdf"`);
 
-    // Create a modern Thermal POS Receipt PDF
-    const width = 300;
-    const margin = 20;
-    const docHeight = 500 + (inv.items.length * 30);
+    const width = 400;
+    const margin = 24;
+    const contentWidth = width - margin * 2;
+    const docHeight = 600 + (inv.items.length * 35);
     const pdf = new PDFDocument({ margin: margin, size: [width, docHeight] });
     pdf.pipe(res);
 
     const salonName = inv.branch?.name || inv.salon?.name || "My Salon";
-    const brandName = salonName.split(" ")[0]?.toUpperCase() || "SALON";
+    const brandName = salonName.toUpperCase();
     const phone = inv.branch?.phone || inv.salon?.phone || "";
+    const fmt = (n) => Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-    // Header
-    pdf.font('Helvetica-Bold').fontSize(20).fillColor('#0f172a').text('Bill Invoice', margin, margin, { align: 'center' });
-    pdf.moveDown(0.3);
+    let y = margin;
 
-    pdf.font('Helvetica-Bold').fontSize(10).fillColor('#0f172a').text(salonName, { align: 'center' });
-    pdf.font('Helvetica').fontSize(8).fillColor('#64748b');
-    if (inv.branch?.address || inv.salon?.address) pdf.text(inv.branch?.address || inv.salon?.address, { align: 'center' });
-    if (phone) pdf.text(`Phone: ${phone}`, { align: 'center' });
-
-    let y = pdf.y + 8;
-
-    // Dashed line helper
     const drawDashedLine = (yPos) => {
       pdf.moveTo(margin, yPos).lineTo(width - margin, yPos).dash(3, { space: 3 }).strokeColor('#cbd5e1').stroke();
       pdf.undash();
     };
 
+    // Header
+    pdf.font('Helvetica-Bold').fontSize(22).fillColor('#0f172a').text(brandName, margin, y, { align: 'center', width: contentWidth });
+    y = pdf.y + 2;
+    pdf.font('Helvetica').fontSize(8).fillColor('#94a3b8').text('HAIR · LIFESTYLE · CARE', { align: 'center', width: contentWidth });
+    y = pdf.y + 4;
+    pdf.font('Helvetica').fontSize(9).fillColor('#64748b').text(salonName, { align: 'center', width: contentWidth });
+    y = pdf.y;
+    if (inv.branch?.address) {
+      pdf.fontSize(8).fillColor('#64748b').text(inv.branch.address, { align: 'center', width: contentWidth });
+      y = pdf.y;
+    }
+    if (phone) {
+      pdf.fontSize(8).fillColor('#64748b').text(`Phone: ${phone}`, { align: 'center', width: contentWidth });
+      y = pdf.y;
+    }
+
+    y += 6;
     drawDashedLine(y);
-    y += 8;
+    y += 10;
 
-    // Guest Details
-    pdf.rect(margin, y, width - margin * 2, 16).fillColor('#0f172a').fill();
-    pdf.fillColor('#ffffff').fontSize(9).font('Helvetica-Bold').text('Guest Details', margin, y + 4, { align: 'center' });
-    y += 20;
+    // Meta section
+    const leftCol = margin + 2;
+    const rightCol = margin + contentWidth / 2 + 10;
+    const invDate = new Date(inv.createdAt);
+    const dateStr = invDate.toLocaleDateString("en-GB", { day:"2-digit", month:"2-digit", year:"numeric" }).replace(/\//g, "-");
+    const timeStr = invDate.toLocaleTimeString("en-US", { hour:"2-digit", minute:"2-digit", hour12: true });
+    const statusUp = (inv.status || "UNPAID").toUpperCase();
 
-    const fmt = (n) => Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-    const guestFields = [
-      ['Invoice:', inv.invoiceNumber],
-      ['Date:', new Date(inv.createdAt).toLocaleDateString('en-GB').replace(/\//g, '-')],
-      ['Name:', inv.customer?.name || "Walk-in Customer"],
-      ['Phone:', inv.customer?.phone || "-"]
+    const metaRows = [
+      ["Invoice No", inv.invoiceNumber || "—"],
+      ["Date", dateStr],
+      ["Time", timeStr],
+      ["Status", statusUp]
     ];
-    guestFields.forEach(([label, value]) => {
-      pdf.fillColor('#0f172a').fontSize(9).font('Helvetica-Bold').text(label, margin + 4, y, { continued: true, width: 100 });
-      pdf.font('Helvetica').text(String(value || "-"), { align: 'left' });
+    metaRows.forEach(([label, value]) => {
+      pdf.font('Helvetica').fontSize(9).fillColor('#94a3b8').text(label, leftCol, y, { width: 90 });
+      pdf.font('Helvetica-Bold').fontSize(9).fillColor('#0f172a').text(String(value), rightCol, y, { width: contentWidth / 2 - 10, align: 'right' });
       y += 13;
     });
 
+    y += 4;
     drawDashedLine(y);
-    y += 8;
+    y += 10;
 
-    // Items Table Header
-    pdf.rect(margin, y, width - margin * 2, 16).fillColor('#0f172a').fill();
-    pdf.fillColor('#ffffff').fontSize(9).font('Helvetica-Bold').text('Bill Invoice', margin, y + 4, { align: 'center' });
-    y += 20;
+    // Customer
+    pdf.font('Helvetica').fontSize(7).fillColor('#94a3b8').text('BILL TO', leftCol, y);
+    y = pdf.y + 2;
+    pdf.font('Helvetica-Bold').fontSize(11).fillColor('#0f172a').text(inv.customer?.name || "Walk-in Customer", leftCol, y);
+    y = pdf.y;
+    if (inv.customer?.phone) {
+      pdf.font('Helvetica').fontSize(9).fillColor('#64748b').text(inv.customer.phone, leftCol, y);
+      y = pdf.y;
+    }
 
-    // Table column positions
-    const colItem = margin + 2;
-    const colQty = margin + 140;
-    const colRate = margin + 175;
-    const colTotal = margin + 225;
+    y += 6;
+    drawDashedLine(y);
+    y += 10;
 
-    // Table header row
-    pdf.fillColor('#94a3b8').fontSize(8).font('Helvetica-Bold');
-    pdf.text('Item', colItem, y, { width: 130 });
-    pdf.text('Qty', colQty, y, { width: 30, align: 'center' });
-    pdf.text('Rate', colRate, y, { width: 45, align: 'right' });
-    pdf.text('Total', colTotal, y, { width: 50, align: 'right' });
+    // Items
+    const colItemX = margin + 2;
+    const colQtyX = margin + 200;
+    const colRateX = margin + 260;
+    const colTotalX = margin + 320;
+
+    pdf.font('Helvetica-Bold').fontSize(8).fillColor('#94a3b8');
+    pdf.text('Item', colItemX, y, { width: 190 });
+    pdf.text('Qty', colQtyX, y, { width: 50, align: 'center' });
+    pdf.text('Rate', colRateX, y, { width: 55, align: 'right' });
+    pdf.text('Total', colTotalX, y, { width: 55, align: 'right' });
     y += 14;
 
-    // Table items
     if (inv.items.length === 0) {
-      pdf.fillColor('#94a3b8').fontSize(9).font('Helvetica').text('No items', margin, y, { align: 'center' });
+      pdf.font('Helvetica').fontSize(9).fillColor('#94a3b8').text('No items', margin, y, { align: 'center', width: contentWidth });
       y += 16;
     } else {
       inv.items.forEach(item => {
@@ -829,74 +858,88 @@ export const registerBillingRoutes = (ownerRouter) => {
         const amt = Number(item.lineTotal || rate * qty);
         const itemName = item.serviceName || "Item";
 
-        // Item name
-        pdf.fillColor('#0f172a').fontSize(9).font('Helvetica-Bold').text(itemName, colItem, y, { width: 130 });
+        pdf.font('Helvetica-Bold').fontSize(9).fillColor('#0f172a').text(itemName, colItemX, y, { width: 190 });
+        const nameBottom = pdf.y;
+        const rowY = y + 2;
 
-        // Discount label
         if (Number(item.appliedBenefitValue) > 0) {
-          y += 12;
-          const discPct = Number(item.unitPrice) > 0 ? ((Number(item.appliedBenefitValue) / Number(item.unitPrice)) * 100).toFixed(2) : "0";
-          pdf.fillColor('#94a3b8').fontSize(7).font('Helvetica').text(`Disc: ${discPct}%`, colItem, y, { width: 130 });
+          const discPct = Number(item.unitPrice) > 0 ? ((Number(item.appliedBenefitValue) / Number(item.unitPrice)) * 100).toFixed(1) : "0";
+          pdf.font('Helvetica').fontSize(7).fillColor('#94a3b8').text(`Disc: ${discPct}%`, colItemX, nameBottom + 1, { width: 190 });
         }
 
-        // Qty, Rate, Total
-        const rowY = y - (Number(item.appliedBenefitValue) > 0 ? 12 : 0);
-        pdf.fillColor('#0f172a').fontSize(9).font('Helvetica').text(String(qty), colQty, rowY + 2, { width: 30, align: 'center' });
-        pdf.text(fmt(rate), colRate, rowY + 2, { width: 45, align: 'right' });
-        pdf.font('Helvetica-Bold').text(fmt(amt), colTotal, rowY + 2, { width: 50, align: 'right' });
+        pdf.font('Helvetica').fontSize(9).fillColor('#0f172a');
+        pdf.text(String(qty), colQtyX, rowY, { width: 50, align: 'center' });
+        pdf.text(fmt(rate), colRateX, rowY, { width: 55, align: 'right' });
+        pdf.font('Helvetica-Bold').text(fmt(amt), colTotalX, rowY, { width: 55, align: 'right' });
 
-        y += Number(item.appliedBenefitValue) > 0 ? 24 : 16;
+        y = Math.max(nameBottom, pdf.y) + (Number(item.appliedBenefitValue) > 0 ? 10 : 6);
       });
     }
 
+    y += 4;
     drawDashedLine(y);
-    y += 8;
+    y += 10;
 
     // Totals
-    const summaryX = margin + 120;
-    const summaryValX = margin + 225;
+    const summaryLabelX = margin + 180;
+    const summaryValX = margin + 320;
 
-    pdf.fillColor('#0f172a').fontSize(9).font('Helvetica').text('Subtotal', summaryX, y, { width: 100, align: 'right' });
-    pdf.font('Courier').text(fmt(inv.subtotal), summaryValX, y, { width: 55, align: 'right' });
+    pdf.font('Helvetica').fontSize(9).fillColor('#64748b');
+    pdf.text('Subtotal', summaryLabelX, y, { width: 130, align: 'right' });
+    pdf.font('Courier').fillColor('#0f172a').text(fmt(inv.subtotal), summaryValX, y, { width: 55, align: 'right' });
     y += 14;
 
     if (Number(inv.discount) > 0) {
-      pdf.fillColor('#0f172a').font('Helvetica').text('Discount', summaryX, y, { width: 100, align: 'right' });
-      pdf.font('Courier').text('- ' + fmt(inv.discount), summaryValX, y, { width: 55, align: 'right' });
+      pdf.font('Helvetica').fillColor('#64748b').text('Discount', summaryLabelX, y, { width: 130, align: 'right' });
+      pdf.font('Courier').fillColor('#22c55e').text('- ' + fmt(inv.discount), summaryValX, y, { width: 55, align: 'right' });
       y += 14;
     }
     if (Number(inv.tax) > 0) {
-      pdf.fillColor('#0f172a').font('Helvetica').text('Tax', summaryX, y, { width: 100, align: 'right' });
-      pdf.font('Courier').text('+ ' + fmt(inv.tax), summaryValX, y, { width: 55, align: 'right' });
+      pdf.font('Helvetica').fillColor('#64748b').text('Tax', summaryLabelX, y, { width: 130, align: 'right' });
+      pdf.font('Courier').fillColor('#f59e0b').text('+ ' + fmt(inv.tax), summaryValX, y, { width: 55, align: 'right' });
       y += 14;
     }
 
+    y += 4;
     drawDashedLine(y);
     y += 8;
 
-    pdf.fillColor('#0f172a').fontSize(11).font('Helvetica-Bold').text('Total', summaryX, y, { width: 100, align: 'right' });
-    pdf.font('Courier-Bold').fontSize(12).text('Rs ' + fmt(inv.total), summaryValX, y, { width: 55, align: 'right' });
-    y += 18;
+    pdf.font('Helvetica-Bold').fontSize(12).fillColor('#0f172a').text('Grand Total', summaryLabelX, y, { width: 130, align: 'right' });
+    pdf.font('Courier-Bold').fontSize(16).text(fmt(inv.total), summaryValX, y, { width: 55, align: 'right' });
+    y += 22;
 
     const paid = Number(inv.paidAmount || 0);
     const balance = Number(inv.balanceAmount || 0);
 
     if (paid > 0) {
-      pdf.fillColor('#0f172a').fontSize(9).font('Helvetica-Bold').text('Paid by:', margin, y);
-      pdf.fillColor('#166534').font('Helvetica-Bold').text('Rs ' + fmt(paid), summaryValX, y, { width: 55, align: 'right' });
+      pdf.font('Helvetica-Bold').fontSize(9).fillColor('#22c55e').text('Paid', summaryLabelX, y, { width: 130, align: 'right' });
+      pdf.font('Courier-Bold').fillColor('#22c55e').text(fmt(paid), summaryValX, y, { width: 55, align: 'right' });
       y += 14;
     }
     if (balance > 0) {
-      pdf.fillColor('#0f172a').fontSize(9).font('Helvetica-Bold').text('Balance Due:', margin, y);
-      pdf.fillColor('#991b1b').font('Helvetica-Bold').text('Rs ' + fmt(balance), summaryValX, y, { width: 55, align: 'right' });
+      pdf.font('Helvetica-Bold').fontSize(9).fillColor('#ef4444').text('Balance Due', summaryLabelX, y, { width: 130, align: 'right' });
+      pdf.font('Courier-Bold').fillColor('#ef4444').text(fmt(balance), summaryValX, y, { width: 55, align: 'right' });
       y += 14;
     }
 
+    if (inv.payments?.length > 0) {
+      y += 4;
+      drawDashedLine(y);
+      y += 8;
+      inv.payments.forEach(p => {
+        pdf.font('Helvetica').fontSize(8).fillColor('#94a3b8').text(p.mode.toUpperCase(), summaryLabelX, y, { width: 130, align: 'right' });
+        pdf.font('Courier').fillColor('#64748b').text(fmt(p.amount), summaryValX, y, { width: 55, align: 'right' });
+        y += 12;
+      });
+    }
+
+    y += 4;
     drawDashedLine(y);
     y += 10;
 
-    // Footer
-    pdf.fillColor('#0f172a').fontSize(10).font('Helvetica-Bold').text('Thank you for choosing us.', margin, y, { align: 'center' });
+    pdf.font('Helvetica-Bold').fontSize(11).fillColor('#0f172a').text('Thank You!', margin, y, { align: 'center', width: contentWidth });
+    y = pdf.y + 2;
+    pdf.font('Helvetica').fontSize(8).fillColor('#94a3b8').text('Visit Again · Powered by Skillify', { align: 'center', width: contentWidth });
 
     pdf.end();
   });
