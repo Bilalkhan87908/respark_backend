@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { prisma } from "./prisma.js";
 import { createStockMovement, ensureScopedBranch, ensureScopedCustomer, ensureScopedService, ensureScopedStaffMembership, getSalonSetting, logCustomerTimeline, refreshCustomerInsights, toAmount } from "./phase2.js";
-import { calculateLoyaltyEarnPoints, getCustomerValidLoyaltyBalance } from "./phase4.js";
+import { calculateLoyaltyEarnPoints, getCustomerValidLoyaltyBalance, reverseInvoiceLoyalty } from "./phase4.js";
 
 const normalizeStatus = (paidAmount, total, refundAmount = 0, cancelled = false) => {
   if (cancelled) return "CANCELLED";
@@ -921,6 +921,8 @@ export const refundInvoice = async ({ salonId, invoiceId, amount, note, actorUse
       where: { soldInvoiceId: invoice.id },
       data: { status: "CANCELLED" }
     });
+
+    await reverseInvoiceLoyalty(tx, invoice, actorUser);
 
     const nextRefundAmount = toAmount(invoice.refundAmount) + toAmount(amount);
     const nextStatus = normalizeStatus(toAmount(invoice.paidAmount), toAmount(invoice.total), nextRefundAmount, false);

@@ -2,6 +2,7 @@ import PDFDocument from "pdfkit";
 import { attemptCustomerTemplateEmail } from "../../../lib/emailNotifications.js";
 import { prisma } from "../../../lib/prisma.js";
 import { addInvoicePayment, createPosInvoice, generatePaymentLink, getDayClosingSummary, logPaymentLinkPlaceholder, refundInvoice } from "../../../lib/pos.js";
+import { reverseInvoiceLoyalty } from "../../../lib/phase4.js";
 import { attachBranchStock, normalizeBranchId, toAmount } from "../../../lib/phase2.js";
 import { attachSalonSettings, requireFeatureEnabled, requireSalonPermission } from "../../../middlewares/rbac.js";
 import { schemas, validate } from "../../../middlewares/validate.js";
@@ -508,14 +509,17 @@ export const registerBillingRoutes = (ownerRouter) => {
     if (!invoice) return res.status(404).json({ message: "Invoice not found" });
     if (invoice.status === "CANCELLED") return res.status(400).json({ message: "Invoice already cancelled" });
     if (invoice.payments.some((payment) => payment.amount > 0)) return res.status(400).json({ message: "Paid invoice requires refund flow instead of cancel" });
-    const cancelledInvoice = await prisma.invoice.update({ where: { id: invoice.id }, data: { status: "CANCELLED", balanceAmount: 0 } });
+    await prisma.$transaction(async (tx) => {
+      await tx.invoice.update({ where: { id: invoice.id }, data: { status: "CANCELLED", balanceAmount: 0 } });
+      await reverseInvoiceLoyalty(tx, invoice, req.user);
+    });
     await attemptCustomerTemplateEmail({
       salonId: req.salonId,
       toEmail: invoice.customer?.email || "",
       templateType: "invoice_cancel_template",
       context: { invoiceId: invoice.id, customerId: invoice.customerId }
     });
-    res.json(cancelledInvoice);
+    res.json({ message: "Invoice cancelled and loyalty points reversed" });
   });
 
   ownerRouter.post("/payments", requireSalonPermission("payments", "create"), validate(schemas.payment), async (req, res) => {
