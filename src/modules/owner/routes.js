@@ -7,6 +7,10 @@ import { patchRouterForAsync } from "../../lib/async-handler.js";
 import { requireAuth, requireMaintenanceAccess, requireSalonContext, requireSalonPermission } from "../../middlewares/rbac.js";
 import { schemas, validate } from "../../middlewares/validate.js";
 
+import { registerPhase2OwnerRoutes } from "./phase2/index.js";
+import { registerPhase3OwnerRoutes } from "./phase3/index.js";
+import { registerPhase4OwnerRoutes } from "./phase4/index.js";
+
 export const ownerRouter = Router();
 patchRouterForAsync(ownerRouter);
 ownerRouter.use(requireAuth, requireMaintenanceAccess, requireSalonContext);
