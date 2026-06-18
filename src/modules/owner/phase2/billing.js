@@ -4,7 +4,7 @@ import { prisma } from "../../../lib/prisma.js";
 import { addInvoicePayment, createPosInvoice, generatePaymentLink, getDayClosingSummary, logPaymentLinkPlaceholder, refundInvoice } from "../../../lib/pos.js";
 import { reverseInvoiceLoyalty } from "../../../lib/phase4.js";
 import { attachBranchStock, normalizeBranchId, toAmount } from "../../../lib/phase2.js";
-import { attachSalonSettings, requireFeatureEnabled, requireSalonPermission } from "../../../middlewares/rbac.js";
+import { requireFeatureEnabled, requireSalonPermission } from "../../../middlewares/rbac.js";
 import { schemas, validate } from "../../../middlewares/validate.js";
 
 const withBranchFilter = (salonId, branchId) => ({ salonId, ...(branchId ? { branchId } : {}) });
@@ -12,6 +12,14 @@ const paymentWhere = (salonId, branchId) => ({ salonId, ...(branchId ? { invoice
 const sendRouteError = (res, error, fallbackMessage) => {
   const status = Number(error?.status || error?.response?.status || 500);
   return res.status(status).json({ message: error?.message || fallbackMessage });
+};
+
+const attachSalonSettings = async (req, res, next) => {
+  if (!req.salonId) return next();
+  const settings = await prisma.salonSetting.findFirst({ where: { salonId: req.salonId, branchId: null } });
+  req.salonSettings = settings || {};
+  req.advancedSettings = typeof settings?.advancedSettings === "object" && settings.advancedSettings ? settings.advancedSettings : {};
+  next();
 };
 
 const sendInvoiceAutomationEmails = async (salonId, invoice) => {
