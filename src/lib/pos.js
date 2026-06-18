@@ -540,11 +540,6 @@ export const createPosInvoice = async ({ salonId, actorUser, body }) => {
         loyaltyPointsUsed: loyaltyDiscount > 0 ? Number(body.loyaltyPointsUsed || 0) : null,
         items: {
           create: itemDrafts.map((item) => ({
-            serviceId: item.serviceId || null,
-            productId: item.productId || null,
-            membershipPlanId: item.membershipPlanId || null,
-            packageId: item.packageId || null,
-            staffUserSalonId: item.staffUserSalonId || null,
             serviceName: item.serviceName,
             staffName: item.staffName,
             batchNumber: item.batchNumber || null,
@@ -556,7 +551,12 @@ export const createPosInvoice = async ({ salonId, actorUser, body }) => {
             appliedBenefitType: item.appliedBenefitType || null,
             appliedBenefitValue: item.appliedBenefitValue || null,
             membershipWalletUsed: item.membershipWalletUsed || null,
-            commissionAmount: item.commissionAmount || null
+            commissionAmount: item.commissionAmount || null,
+            ...(item.serviceId ? { serviceId: item.serviceId } : {}),
+            ...(item.productId ? { product: { connect: { id: item.productId } } } : {}),
+            ...(item.membershipPlanId ? { membershipPlan: { connect: { id: item.membershipPlanId } } } : {}),
+            ...(item.packageId ? { package: { connect: { id: item.packageId } } } : {}),
+            ...(item.staffUserSalonId ? { staffUserSalon: { connect: { id: item.staffUserSalonId } } } : {})
           }))
         }
       },
