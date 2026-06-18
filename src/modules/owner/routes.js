@@ -344,10 +344,10 @@ ownerRouter.get("/customers", requireSalonPermission("customers", "view"), async
       ...(branchId ? { invoices: { some: { branchId } } } : {}),
       ...(query ? {
         OR: [
-          { name: { contains: query, mode: "insensitive" } },
-          { phone: { contains: query, mode: "insensitive" } },
-          { email: { contains: query, mode: "insensitive" } },
-          { source: { contains: query, mode: "insensitive" } }
+          { name: { contains: query } },
+          { phone: { contains: query } },
+          { email: { contains: query } },
+          { source: { contains: query } }
         ]
       } : {}),
       ...(filter === "high_spender" ? { totalSpend: { gte: 10000 } } : {}),
@@ -553,11 +553,11 @@ ownerRouter.get("/support-tickets", requireSalonPermission("support", "view"), a
       ...(priority ? { priority } : {}),
       ...(q ? {
         OR: [
-          { title: { contains: q, mode: "insensitive" } },
-          { description: { contains: q, mode: "insensitive" } },
-          { category: { contains: q, mode: "insensitive" } },
-          { internalNote: { contains: q, mode: "insensitive" } },
-          { assignedAgentName: { contains: q, mode: "insensitive" } }
+          { title: { contains: q } },
+          { description: { contains: q } },
+          { category: { contains: q } },
+          { internalNote: { contains: q } },
+          { assignedAgentName: { contains: q } }
         ]
       } : {})
     },

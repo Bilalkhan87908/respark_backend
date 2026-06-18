@@ -131,7 +131,7 @@ const buildDateFilter = (req, field = "createdAt") => {
       date: new Date(l.createdAt).toLocaleDateString(),
       customer: l.customerMembership?.customer?.name,
       membership: l.customerMembership?.membershipPlan?.name,
-      serviceRedeemed: l.notes || "Service",
+      serviceRedeemed: l.note || "Service",
       sessionsUsed: l.amountUsed ? toAmount(l.amountUsed) : 1,
       remaining: l.customerMembership?.remainingWalletValue ? toAmount(l.customerMembership.remainingWalletValue) : "-"
     })));
@@ -147,7 +147,7 @@ const buildDateFilter = (req, field = "createdAt") => {
       date: new Date(l.createdAt).toLocaleDateString(),
       customer: l.customerPackage?.customer?.name,
       package: l.customerPackage?.package?.name,
-      serviceRedeemed: l.notes || "Service",
+      serviceRedeemed: l.note || "Service",
       sessionsUsed: l.sessionsUsed || 1,
       remaining: l.customerPackage?.remainingSessions || 0
     })));
