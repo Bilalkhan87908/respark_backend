@@ -106,9 +106,6 @@ export const registerOperationsRoutes = (ownerRouter) => {
     }));
   });
   ownerRouter.post("/expenses", requireFeatureEnabled("expenses"), requireSalonPermission("expenses", "create"), attachSalonSettings, validate(schemas.expense), async (req, res) => {
-    const expenseSettings = req.advancedSettings?.expenseSettings || {};
-    const autoApprove = expenseSettings.autoApprove === true;
-    const initialStatus = autoApprove ? "APPROVED" : (req.body.status || "PENDING");
     const row = await prisma.expense.create({
       data: {
         salonId: req.salonId,
@@ -116,12 +113,12 @@ export const registerOperationsRoutes = (ownerRouter) => {
         categoryId: req.body.categoryId || null,
         vendorId: req.body.vendorId || null,
         createdByMembershipId: req.user.membershipId || null,
+        approvedByMembershipId: req.user.membershipId || null,
         title: req.body.title,
         amount: req.body.amount,
         expenseDate: new Date(req.body.expenseDate),
         paymentMode: req.body.paymentMode || null,
-        status: initialStatus,
-        ...(autoApprove ? { approvedByMembershipId: req.user.membershipId || null } : {}),
+        status: "APPROVED",
         notes: req.body.notes || null,
         receiptUrl: req.body.receiptUrl || null,
         attachmentUrl: req.body.attachmentUrl || null
@@ -132,10 +129,10 @@ export const registerOperationsRoutes = (ownerRouter) => {
       actorUserId: req.user.userId,
       actorMembershipId: req.user.membershipId,
       module: "EXPENSES",
-      action: row.status === "APPROVED" ? "CREATED_APPROVED" : "CREATED_PENDING",
+      action: "CREATED_APPROVED",
       entityType: "Expense",
       entityId: row.id,
-      summary: `${row.title} expense created with status ${row.status}`
+      summary: `${row.title} expense created`
     });
     res.status(201).json(row);
   });
