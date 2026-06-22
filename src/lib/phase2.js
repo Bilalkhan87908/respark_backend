@@ -233,6 +233,39 @@ export const ensureScopedService = async (salonId, serviceId) => {
   return service;
 };
 
+export const format12Hour = (timeStr) => {
+  if (!timeStr) return "";
+  const valStr = String(timeStr).trim().toLowerCase();
+  const hasAmPm = valStr.includes("am") || valStr.includes("pm");
+  const [timePart] = valStr.split(" ");
+  const [hStr, mStr = "00"] = timePart.split(":");
+  let h = parseInt(hStr, 10);
+  let m = parseInt(mStr, 10);
+  if (isNaN(h)) h = 9;
+  if (isNaN(m)) m = 0;
+
+  if (hasAmPm) {
+    if (valStr.includes("pm") && h < 12) h += 12;
+    if (valStr.includes("am") && h === 12) h = 0;
+  }
+  const ampm = h >= 12 ? "PM" : "AM";
+  const hour12 = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+  const hourText = String(hour12).padStart(2, "0");
+  const minuteText = String(m).padStart(2, "0");
+  return `${hourText}:${minuteText} ${ampm}`;
+};
+
+export const getOffsetMinutesByCurrency = (currency) => {
+  const c = String(currency || "INR").toUpperCase();
+  if (c === "PKR") return 300;
+  if (c === "INR") return 330;
+  if (c === "AED") return 240;
+  if (c === "USD") return -300;
+  if (c === "GBP") return 0;
+  if (c === "EUR") return 60;
+  return 330;
+};
+
 export const checkStaffAvailability = async ({
   salonId,
   branchId,
@@ -243,9 +276,22 @@ export const checkStaffAvailability = async ({
 }) => {
   const start = new Date(startAt);
   const end = new Date(endAt);
-  const weekday = start.getDay();
-  const startMinutes = dateToMinutes(start);
-  const endMinutes = dateToMinutes(end);
+
+  const salonSetting = await getSalonSetting(prisma, salonId, branchId);
+  const currency = salonSetting?.advancedSettings?.genericSettings?.currency || "INR";
+  const offsetMinutes = getOffsetMinutesByCurrency(currency);
+
+  const getLocalTime = (isoStr) => {
+    const d = new Date(isoStr);
+    return new Date(d.getTime() + offsetMinutes * 60 * 1000);
+  };
+
+  const localStart = getLocalTime(startAt);
+  const localEnd = getLocalTime(endAt);
+
+  const weekday = localStart.getUTCDay();
+  const startMinutes = localStart.getUTCHours() * 60 + localStart.getUTCMinutes();
+  const endMinutes = localEnd.getUTCHours() * 60 + localEnd.getUTCMinutes();
 
   for (const membershipId of staffMembershipIds) {
     const membership = await ensureScopedStaffMembership(salonId, membershipId);
@@ -255,7 +301,6 @@ export const checkStaffAvailability = async ({
       throw error;
     }
 
-    const salonSetting = await getSalonSetting(prisma, salonId, branchId);
     const rosterRows = salonSetting?.advancedSettings?.rosterManagement?.rows;
     const rosterRow = Array.isArray(rosterRows) ? rosterRows.find(r => r.id === membershipId) : null;
 
@@ -268,7 +313,7 @@ export const checkStaffAvailability = async ({
       const rosterStart = timeToMinutes(rosterRow.fromTime || "09:00");
       const rosterEnd = timeToMinutes(rosterRow.toTime || "21:00");
       if (startMinutes < rosterStart || endMinutes > rosterEnd) {
-        const error = new Error(`${membership.user.name} is outside working hours (${rosterRow.fromTime} - ${rosterRow.toTime})`);
+        const error = new Error(`${membership.user.name} is outside working hours (${format12Hour(rosterRow.fromTime || "09:00")} - ${format12Hour(rosterRow.toTime || "21:00")})`);
         error.status = 400;
         throw error;
       }
@@ -283,7 +328,7 @@ export const checkStaffAvailability = async ({
         const scheduleStart = timeToMinutes(schedule.startTime);
         const scheduleEnd = timeToMinutes(schedule.endTime);
         if (startMinutes < scheduleStart || endMinutes > scheduleEnd) {
-          const error = new Error(`${membership.user.name} is outside working hours`);
+          const error = new Error(`${membership.user.name} is outside working hours (${format12Hour(schedule.startTime)} - ${format12Hour(schedule.endTime)})`);
           error.status = 400;
           throw error;
         }

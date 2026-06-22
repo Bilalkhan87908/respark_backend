@@ -85,7 +85,15 @@ export const createApp = ({
     limit: rateLimitMax,
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => req.path === "/health" || req.path === "/ready",
+    skip: (req) => {
+      if (req.path === "/health" || req.path === "/ready" || process.env.DISABLE_RATE_LIMIT === "true") {
+        return true;
+      }
+      if (req.headers.authorization || req.cookies?.token) {
+        return true;
+      }
+      return false;
+    },
     handler: (req, res) => {
       res.status(429).json({
         message: "Too many requests, please try again shortly.",
