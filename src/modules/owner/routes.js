@@ -739,10 +739,10 @@ ownerRouter.get("/customers", requireSalonPermission("customers", "view"), async
       ...(branchId ? { invoices: { some: { branchId } } } : {}),
       ...(query ? {
         OR: [
-          { name: { contains: query } },
-          { phone: { contains: query } },
-          { email: { contains: query } },
-          { source: { contains: query } }
+          { name: { contains: query, mode: "insensitive" } },
+          { phone: { contains: query, mode: "insensitive" } },
+          { email: { contains: query, mode: "insensitive" } },
+          { source: { contains: query, mode: "insensitive" } }
         ]
       } : {}),
       ...(filter === "high_spender" ? { totalSpend: { gte: 10000 } } : {}),
@@ -919,6 +919,53 @@ ownerRouter.get("/customers/:id", requireSalonPermission("customers", "view"), a
   const phonePart = (customer.phone || "0000").replace(/[^0-9]/g, "").slice(-4);
   const referralCode = `${namePart}${phonePart}`;
 
+  // Evaluate matching CRM segments for this customer
+  const setting = await prisma.salonSetting.findFirst({
+    where: { salonId: req.salonId, branchId: null }
+  });
+  const advancedSettings = setting?.advancedSettings || {};
+  const crmSegments = advancedSettings.crmSegments || [];
+  const matchedSegments = [];
+  const now = new Date();
+  const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+
+  for (const segment of crmSegments) {
+    if (segment.active === false) continue;
+    let matched = false;
+    const filterType = segment.filterType || "ALL_CUSTOMERS";
+
+    if (filterType === "ALL_CUSTOMERS") {
+      matched = true;
+    } else if (filterType === "BIRTHDAY_CUSTOMERS") {
+      matched = customer.dateOfBirth ? new Date(customer.dateOfBirth).getMonth() === now.getMonth() : false;
+    } else if (filterType === "ANNIVERSARY_CUSTOMERS") {
+      matched = customer.anniversary ? new Date(customer.anniversary).getMonth() === now.getMonth() : false;
+    } else if (filterType === "LOST_CUSTOMERS") {
+      matched = !customer.lastVisitAt || new Date(customer.lastVisitAt) <= ninetyDaysAgo;
+    } else if (filterType === "HIGH_SPENDERS") {
+      matched = Number(customer.totalSpend || 0) >= 10000;
+    } else if (filterType === "MEMBERSHIP_CUSTOMERS") {
+      matched = customer.memberships.some(m => m.status === "ACTIVE" && new Date(m.endsAt) >= now);
+    } else if (filterType === "PACKAGE_CUSTOMERS") {
+      matched = customer.packages.some(p => p.status === "ACTIVE" && new Date(p.endsAt) >= now);
+    } else if (filterType === "SERVICE_BASED_CUSTOMERS") {
+      const serviceId = segment.serviceId;
+      if (serviceId) {
+        matched = customer.invoices.some(inv =>
+          (inv.items || []).some(item => item.serviceId === serviceId)
+        );
+      }
+    }
+
+    if (matched) {
+      matchedSegments.push({
+        id: segment.id,
+        name: segment.name || "Unnamed Segment",
+        description: segment.description || ""
+      });
+    }
+  }
+
   res.json({
     ...customer,
     totalOrders,
@@ -926,7 +973,8 @@ ownerRouter.get("/customers/:id", requireSalonPermission("customers", "view"), a
     balanceAmount,
     familyMembers,
     referralCode,
-    followUps
+    followUps,
+    segments: matchedSegments
   });
 });
 

@@ -27,24 +27,51 @@ const buildSpreadsheetHtml = (headers, rows) => `<!DOCTYPE html>
   </body>
 </html>`;
 
-const buildInvoiceWhere = (req, branchId) => ({
-  salonId: req.salonId,
-  ...(branchId ? { branchId } : {}),
-  ...(isOwnScopedStaff(req, "reports") ? { items: { some: { staffUserSalonId: req.user.membershipId } } } : {})
-});
+const parseDateSafe = (val, isEnd = false) => {
+  if (!val) return null;
+  const suffix = isEnd ? "T23:59:59.999Z" : "T00:00:00.000Z";
+  const d = new Date(val + suffix);
+  return isNaN(d.getTime()) ? null : d;
+};
+
+const buildInvoiceWhere = (req, branchId) => {
+  const start = parseDateSafe(req.query.start, false);
+  const end = parseDateSafe(req.query.end, true);
+  return {
+    salonId: req.salonId,
+    ...(branchId ? { branchId } : {}),
+    ...(isOwnScopedStaff(req, "reports") ? { items: { some: { staffUserSalonId: req.user.membershipId } } } : {}),
+    ...(start || end ? {
+      createdAt: {
+        ...(start ? { gte: start } : {}),
+        ...(end ? { lte: end } : {})
+      }
+    } : {})
+  };
+};
 
 const buildPaymentWhere = (req, branchId) => ({
   salonId: req.salonId,
   invoice: { is: buildInvoiceWhere(req, branchId) }
 });
 
-const buildAppointmentWhere = (req, branchId) => ({
-  salonId: req.salonId,
-  ...(branchId ? { branchId } : {}),
-  ...(isOwnScopedStaff(req, "reports")
-    ? { items: { some: { assignedStaff: { some: { userSalonId: req.user.membershipId } } } } }
-    : {})
-});
+const buildAppointmentWhere = (req, branchId) => {
+  const start = parseDateSafe(req.query.start, false);
+  const end = parseDateSafe(req.query.end, true);
+  return {
+    salonId: req.salonId,
+    ...(branchId ? { branchId } : {}),
+    ...(isOwnScopedStaff(req, "reports")
+      ? { items: { some: { assignedStaff: { some: { userSalonId: req.user.membershipId } } } } }
+      : {}),
+    ...(start || end ? {
+      startAt: {
+        ...(start ? { gte: start } : {}),
+        ...(end ? { lte: end } : {})
+      }
+    } : {})
+  };
+};
 
 reportsRouter.get("/sales-summary", async (req, res) => {
   const branchId = normalizeBranchId(req.query.branchId);
@@ -67,6 +94,292 @@ reportsRouter.get("/sales-summary", async (req, res) => {
   }, {});
 
   res.json({ count: invoices.length, totalSales, totalPaid, totalDue, byStatus, byBranch });
+});
+
+reportsRouter.get("/sales-summary-dashboard", async (req, res) => {
+  const branchId = normalizeBranchId(req.query.branchId);
+  const start = parseDateSafe(req.query.start, false);
+  const end = parseDateSafe(req.query.end, true);
+
+  const salonSettings = await prisma.salonSetting.findFirst({
+    where: { salonId: req.salonId, branchId: null }
+  });
+  const advancedSettings = salonSettings?.advancedSettings && typeof salonSettings.advancedSettings === "object"
+    ? salonSettings.advancedSettings
+    : {};
+  const inclusiveTax = advancedSettings?.taxMapping?.inclusiveTax === true;
+
+  const invoices = await prisma.invoice.findMany({
+    where: buildInvoiceWhere(req, branchId),
+    include: { customer: true, payments: true, items: true }
+  });
+
+  let grossSale = 0;
+  let grossCount = invoices.length;
+
+  let serviceNet = 0;
+  let serviceCount = 0;
+  let serviceTaxInclusive = 0;
+  let serviceTaxExclusive = 0;
+  let serviceWalletUsed = 0;
+  let serviceTotalWithTaxes = 0;
+
+  let productNet = 0;
+  let productCount = 0;
+  let productTaxInclusive = 0;
+  let productTaxExclusive = 0;
+  let productWalletUsed = 0;
+  let productTotalWithTaxes = 0;
+
+  let packageNet = 0;
+  let packageCount = 0;
+  let packageTaxInclusive = 0;
+  let packageTaxExclusive = 0;
+  let packageTotalWithTaxes = 0;
+
+  let membershipNet = 0;
+  let membershipCount = 0;
+  let membershipTaxInclusive = 0;
+  let membershipTaxExclusive = 0;
+  let membershipTopupWithoutTaxes = 0;
+  let membershipTotalWithTaxes = 0;
+
+  let giftCardNet = 0;
+  let giftCardCount = 0;
+
+  const serviceSalesMap = {};
+  const productSalesMap = {};
+  const stylistSalesMap = {};
+  const packageSalesMap = {};
+  const membershipSalesMap = {};
+
+  const customersWithServiceOrProduct = new Set();
+  const allFootfallCustomerIds = new Set();
+
+  invoices.forEach((inv) => {
+    const total = toAmount(inv.total);
+    grossSale += total;
+    if (inv.customerId) {
+      allFootfallCustomerIds.add(inv.customerId);
+    }
+
+    inv.items.forEach((item) => {
+      const lineTotal = toAmount(item.lineTotal);
+      const qty = Number(item.qty || 1);
+      const unitPrice = toAmount(item.unitPrice);
+      const taxPct = toAmount(item.taxPct);
+      const walletUsed = toAmount(item.membershipWalletUsed);
+      const preTax = unitPrice * qty;
+
+      let itemTax = 0;
+      if (taxPct > 0) {
+        if (inclusiveTax) {
+          itemTax = (preTax * taxPct) / (100 + taxPct);
+        } else {
+          itemTax = (preTax * taxPct) / 100;
+        }
+      }
+
+      const staffName = item.staffName || "Unassigned";
+      stylistSalesMap[staffName] = (stylistSalesMap[staffName] || 0) + lineTotal;
+
+      if (item.itemType === "SERVICE") {
+        serviceNet += lineTotal;
+        serviceCount += qty;
+        serviceSalesMap[item.serviceName || "Service"] = (serviceSalesMap[item.serviceName || "Service"] || 0) + lineTotal;
+        if (inv.customerId) customersWithServiceOrProduct.add(inv.customerId);
+
+        serviceTotalWithTaxes += lineTotal;
+        serviceWalletUsed += walletUsed;
+        if (inclusiveTax) {
+          serviceTaxInclusive += itemTax;
+        } else {
+          serviceTaxExclusive += itemTax;
+        }
+      } else if (item.itemType === "PRODUCT") {
+        productNet += lineTotal;
+        productCount += qty;
+        productSalesMap[item.productName || "Product"] = (productSalesMap[item.productName || "Product"] || 0) + lineTotal;
+        if (inv.customerId) customersWithServiceOrProduct.add(inv.customerId);
+
+        productTotalWithTaxes += lineTotal;
+        productWalletUsed += walletUsed;
+        if (inclusiveTax) {
+          productTaxInclusive += itemTax;
+        } else {
+          productTaxExclusive += itemTax;
+        }
+      } else if (item.itemType === "PACKAGE") {
+        packageNet += lineTotal;
+        packageCount += qty;
+        packageSalesMap[item.serviceName || "Package"] = (packageSalesMap[item.serviceName || "Package"] || 0) + lineTotal;
+
+        packageTotalWithTaxes += lineTotal;
+        if (inclusiveTax) {
+          packageTaxInclusive += itemTax;
+        } else {
+          packageTaxExclusive += itemTax;
+        }
+      } else if (item.itemType === "MEMBERSHIP") {
+        membershipNet += lineTotal;
+        membershipCount += qty;
+        membershipSalesMap[item.serviceName || "Membership"] = (membershipSalesMap[item.serviceName || "Membership"] || 0) + lineTotal;
+
+        membershipTotalWithTaxes += lineTotal;
+        const membershipTax = (preTax * taxPct) / 100;
+        membershipTaxExclusive += membershipTax;
+        membershipTopupWithoutTaxes += preTax;
+      } else if (item.itemType === "GIFT_CARD") {
+        giftCardNet += lineTotal;
+        giftCardCount += qty;
+      }
+    });
+  });
+
+  let totalDiscount = invoices.reduce((sum, inv) => sum + toAmount(inv.discount), 0);
+  let totalRedemption = 0;
+  invoices.forEach(inv => {
+    inv.items.forEach(item => {
+      totalRedemption += toAmount(item.membershipWalletUsed) + toAmount(item.packageSessionsUsed);
+    });
+  });
+
+  let onlineCollection = 0;
+  let offlineCollection = 0;
+  invoices.forEach((inv) => {
+    inv.payments.forEach((p) => {
+      const amt = toAmount(p.amount);
+      const modeUpper = String(p.mode || "").toUpperCase();
+      if (modeUpper === "ONLINE" || modeUpper.includes("UPI") || modeUpper.includes("CARD") || modeUpper.includes("NET") || modeUpper.includes("BANK")) {
+        onlineCollection += amt;
+      } else {
+        offlineCollection += amt;
+      }
+    });
+  });
+
+  const totalGuestFootfall = allFootfallCustomerIds.size;
+  const newGuests = await prisma.customer.findMany({
+    where: {
+      salonId: req.salonId,
+      ...(start || end ? {
+        createdAt: {
+          ...(start ? { gte: start } : {}),
+          ...(end ? { lte: end } : {})
+        }
+      } : {})
+    },
+    select: { id: true }
+  });
+  const newGuestIds = new Set(newGuests.map(g => g.id));
+  let newGuestFootfall = 0;
+  allFootfallCustomerIds.forEach(cid => {
+    if (newGuestIds.has(cid)) newGuestFootfall++;
+  });
+  const repetitiveGuestFootfall = Math.max(0, totalGuestFootfall - newGuestFootfall);
+  const footfallPurchasedPct = totalGuestFootfall > 0 ? Math.round((customersWithServiceOrProduct.size / totalGuestFootfall) * 100) : 0;
+
+  const formatTop5 = (map) => {
+    return Object.entries(map)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5);
+  };
+
+  const topServices = formatTop5(serviceSalesMap);
+  const topProducts = formatTop5(productSalesMap);
+  const topStylists = formatTop5(stylistSalesMap);
+  const topPackages = formatTop5(packageSalesMap);
+  const topMemberships = formatTop5(membershipSalesMap);
+
+  const clientCountMap = {};
+  invoices.forEach((inv) => {
+    const dStr = new Date(inv.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+    clientCountMap[dStr] = (clientCountMap[dStr] || 0) + 1;
+  });
+  const clientCountList = Object.entries(clientCountMap).map(([name, value]) => ({ name, value })).slice(-10);
+
+  const avgBillValue = grossCount > 0 ? Math.round(grossSale / grossCount) : 0;
+  const avgServiceBillValue = serviceCount > 0 ? Math.round(serviceNet / serviceCount) : 0;
+  const avgProductBillValue = productCount > 0 ? Math.round(productNet / productCount) : 0;
+
+  res.json({
+    cards: {
+      grossSale: { value: grossSale, count: grossCount },
+      serviceNetSale: {
+        value: serviceNet,
+        count: serviceCount,
+        details: {
+          totalServiceSaleWithTaxes: serviceTotalWithTaxes,
+          inclusiveTaxes: serviceTaxInclusive,
+          exclusiveTaxes: serviceTaxExclusive,
+          membershipRedemption: serviceWalletUsed
+        }
+      },
+      productNetSale: {
+        value: productNet,
+        count: productCount,
+        details: {
+          totalProductSaleWithTaxes: productTotalWithTaxes,
+          inclusiveTaxes: productTaxInclusive,
+          exclusiveTaxes: productTaxExclusive,
+          membershipRedemption: productWalletUsed
+        }
+      },
+      packageNetSale: {
+        value: packageNet,
+        count: packageCount,
+        details: {
+          totalPackageSaleWithTaxes: packageTotalWithTaxes,
+          inclusiveTaxes: packageTaxInclusive,
+          exclusiveTaxes: packageTaxExclusive
+        }
+      },
+      membershipNetSale: {
+        value: membershipNet,
+        count: membershipCount,
+        details: {
+          totalMembershipSaleWithTaxes: membershipTotalWithTaxes,
+          topupAmountWithoutTaxes: membershipTopupWithoutTaxes,
+          inclusiveTaxes: membershipTaxInclusive,
+          exclusiveTaxes: membershipTaxExclusive
+        }
+      },
+      giftCardNetSale: { value: giftCardNet, count: giftCardCount }
+    },
+    revenueSources: {
+      serviceSale: serviceNet,
+      productSale: productNet,
+      totalSale: serviceNet + productNet
+    },
+    adjustments: {
+      discount: totalDiscount,
+      totalRedemption: totalRedemption
+    },
+    collection: {
+      online: onlineCollection,
+      offline: offlineCollection
+    },
+    footfall: {
+      totalGuestFootfall,
+      newGuestFootfall,
+      repetitiveGuestFootfall,
+      purchasedPct: footfallPurchasedPct
+    },
+    topServices,
+    topProducts,
+    topStylists,
+    topPackages,
+    topMemberships,
+    clientCount: clientCountList,
+    averageSale: {
+      totalGrossSale: grossSale,
+      totalTransactions: grossCount,
+      avgBillValue,
+      avgServiceBillValue,
+      avgProductBillValue
+    }
+  });
 });
 
 reportsRouter.get("/sales-summary-list", async (req, res) => {
@@ -256,10 +569,20 @@ reportsRouter.get("/service-sales", async (req, res) => {
 });
 
 reportsRouter.get("/memberships", async (req, res) => {
+  const start = parseDateSafe(req.query.start, false);
+  const end = parseDateSafe(req.query.end, true);
   const rows = await prisma.customerMembership.findMany({
-    where: isOwnScopedStaff(req, "reports")
-      ? { salonId: req.salonId, soldInvoice: { is: { items: { some: { staffUserSalonId: req.user.membershipId } } } } }
-      : { salonId: req.salonId },
+    where: {
+      ...(isOwnScopedStaff(req, "reports")
+        ? { salonId: req.salonId, soldInvoice: { is: { items: { some: { staffUserSalonId: req.user.membershipId } } } } }
+        : { salonId: req.salonId }),
+      ...(start || end ? {
+        createdAt: {
+          ...(start ? { gte: start } : {}),
+          ...(end ? { lte: end } : {})
+        }
+      } : {})
+    },
     include: { membershipPlan: true, customer: true, soldInvoice: true, usageLogs: true },
     orderBy: { createdAt: "desc" }
   });
@@ -267,10 +590,20 @@ reportsRouter.get("/memberships", async (req, res) => {
 });
 
 reportsRouter.get("/packages", async (req, res) => {
+  const start = parseDateSafe(req.query.start, false);
+  const end = parseDateSafe(req.query.end, true);
   const rows = await prisma.customerPackage.findMany({
-    where: isOwnScopedStaff(req, "reports")
-      ? { salonId: req.salonId, soldInvoice: { is: { items: { some: { staffUserSalonId: req.user.membershipId } } } } }
-      : { salonId: req.salonId },
+    where: {
+      ...(isOwnScopedStaff(req, "reports")
+        ? { salonId: req.salonId, soldInvoice: { is: { items: { some: { staffUserSalonId: req.user.membershipId } } } } }
+        : { salonId: req.salonId }),
+      ...(start || end ? {
+        createdAt: {
+          ...(start ? { gte: start } : {}),
+          ...(end ? { lte: end } : {})
+        }
+      } : {})
+    },
     include: { package: true, customer: true, soldInvoice: true, usageLogs: true },
     orderBy: { createdAt: "desc" }
   });

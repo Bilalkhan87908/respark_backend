@@ -618,6 +618,7 @@ export const schemas = {
       branchId: idSchema,
       vendorId: idSchema,
       notes: optionalString,
+      status: z.enum(["DRAFT", "ORDERED", "PARTIALLY_RECEIVED", "RECEIVED", "CANCELLED"]).optional(),
       items: z.array(z.object({
         productId: idSchema,
         quantityOrdered: z.number().positive(),

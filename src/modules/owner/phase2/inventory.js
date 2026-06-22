@@ -194,6 +194,7 @@ export const registerInventoryRoutes = (ownerRouter) => {
     const order = await prisma.$transaction(async (tx) => {
       const orderNumber = await nextNumber(tx, "purchaseOrder", req.salonId, "PO");
       const totalCost = req.body.items.reduce((sum, item) => sum + toAmount(item.unitCost) * toAmount(item.quantityOrdered), 0);
+      const status = req.body.status || (req.user.salonRole === "SALON_OWNER" ? "ORDERED" : "DRAFT");
       return tx.purchaseOrder.create({
         data: {
           salonId: req.salonId,
@@ -202,7 +203,7 @@ export const registerInventoryRoutes = (ownerRouter) => {
           createdByUserId: req.user.id,
           orderNumber,
           notes: req.body.notes || null,
-          status: "ORDERED",
+          status,
           totalCost,
           items: {
             create: req.body.items.map((item) => ({
@@ -217,6 +218,56 @@ export const registerInventoryRoutes = (ownerRouter) => {
       });
     });
     res.status(201).json(order);
+  });
+
+  ownerRouter.patch("/purchases/orders/:id/approve", requireFeatureEnabled("inventory"), requireSalonPermission("purchases", "edit"), async (req, res) => {
+    const order = await prisma.purchaseOrder.findFirst({
+      where: { id: req.params.id, salonId: req.salonId }
+    });
+    if (!order) return res.status(404).json({ message: "Purchase order not found" });
+
+    let updatedNotes = order.notes;
+    if (req.body.notes) {
+      updatedNotes = order.notes 
+        ? `${order.notes}\n[Approved] ${req.body.notes}`
+        : `[Approved] ${req.body.notes}`;
+    }
+
+    const updated = await prisma.purchaseOrder.update({
+      where: { id: order.id },
+      data: {
+        status: "ORDERED",
+        notes: updatedNotes
+      },
+      include: { vendor: true, branch: true, items: { include: { product: true } } }
+    });
+
+    res.json(updated);
+  });
+
+  ownerRouter.patch("/purchases/orders/:id/reject", requireFeatureEnabled("inventory"), requireSalonPermission("purchases", "edit"), async (req, res) => {
+    const order = await prisma.purchaseOrder.findFirst({
+      where: { id: req.params.id, salonId: req.salonId }
+    });
+    if (!order) return res.status(404).json({ message: "Purchase order not found" });
+
+    let updatedNotes = order.notes;
+    if (req.body.notes) {
+      updatedNotes = order.notes 
+        ? `${order.notes}\n[Rejected] ${req.body.notes}`
+        : `[Rejected] ${req.body.notes}`;
+    }
+
+    const updated = await prisma.purchaseOrder.update({
+      where: { id: order.id },
+      data: {
+        status: "CANCELLED",
+        notes: updatedNotes
+      },
+      include: { vendor: true, branch: true, items: { include: { product: true } } }
+    });
+
+    res.json(updated);
   });
 
   ownerRouter.post("/purchases/orders/:id/receive", requireFeatureEnabled("inventory"), requireSalonPermission("purchases", "edit"), validate(schemas.purchaseReceive), async (req, res) => {
