@@ -211,6 +211,33 @@ export const registerBillingRoutes = (ownerRouter) => {
       } catch (e) {}
     });
 
+    // Sum up advance USED as payment (Payment.mode = 'ADVANCE' on non-advance-invoices)
+    // Advance invoices have itemType = 'ADVANCE' and a single "Advance Payment" line item with total = advance amount
+    // When advance is USED to pay for a regular service/product, the invoice has type != 'ADVANCE' itemType items
+    // AND a payment with mode = 'ADVANCE'. We subtract these to get the remaining available advance.
+    const advanceInvoiceIds = new Set(
+      (await prisma.invoiceItem.findMany({
+        where: { itemType: "ADVANCE" },
+        select: { invoiceId: true }
+      })).map(i => i.invoiceId)
+    );
+    const usedAdvanceByCustomer = new Map();
+    if (advanceInvoiceIds.size > 0) {
+      const usedPayments = await prisma.payment.findMany({
+        where: {
+          salonId: req.salonId,
+          mode: "ADVANCE",
+          invoiceId: { notIn: Array.from(advanceInvoiceIds) }
+        },
+        select: { invoice: { select: { customerId: true } }, amount: true }
+      });
+      usedPayments.forEach((p) => {
+        if (!p.invoice?.customerId) return;
+        const cid = p.invoice.customerId;
+        usedAdvanceByCustomer.set(cid, (usedAdvanceByCustomer.get(cid) || 0) + Number(p.amount || 0));
+      });
+    }
+
     // Enrich customers: compute lastVisitAt from invoices if not set
     const enrichedCustomers = customers.map(c => {
       let lastVisitAt = c.lastVisitAt;
@@ -218,11 +245,10 @@ export const registerBillingRoutes = (ownerRouter) => {
         const paidInvoice = c.invoices.find(inv => inv.status === "PAID" || inv.status === "PARTIAL");
         lastVisitAt = paidInvoice ? paidInvoice.createdAt : c.invoices[0].createdAt;
       }
-      // Compute advance: sum of advance timeline entries minus any advance USED as payment in other invoices
       const totalAdvance = advanceByCustomer.get(c.id) || 0;
-      // Track how much advance was used as payment (type: ADVANCE in payments table)
-      // For now, the user can see total advance available. Used amount can be computed by querying Payment records with type=ADVANCE that belong to non-advance-invoices.
-      return { ...c, lastVisitAt, advanceAmount: totalAdvance };
+      const usedAdvance = usedAdvanceByCustomer.get(c.id) || 0;
+      const availableAdvance = Math.max(0, totalAdvance - usedAdvance);
+      return { ...c, lastVisitAt, advanceAmount: availableAdvance };
     });
 
     const customerProfile = req.query.customerId

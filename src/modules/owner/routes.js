@@ -888,7 +888,7 @@ ownerRouter.get("/customers/:id", requireSalonPermission("customers", "view"), a
   if (!customer) return res.status(404).json({ message: "Customer not found" });
   
   const balanceAmount = customer.invoices.reduce((sum, inv) => sum + Number(inv.balanceAmount || 0), 0);
-  const [advanceTimelineEntries, followUpEntries, staffDirectory] = await Promise.all([
+  const [advanceTimelineEntries, followUpEntries, staffDirectory, advanceInvoiceItems, usedAdvancePayments] = await Promise.all([
     prisma.customerTimeline.findMany({
       where: { customerId: req.params.id, eventType: "ADVANCE_PAYMENT" }
     }),
@@ -899,6 +899,11 @@ ownerRouter.get("/customers/:id", requireSalonPermission("customers", "view"), a
     prisma.userSalon.findMany({
       where: { salonId: req.salonId, isArchived: false },
       include: { user: true }
+    }),
+    prisma.invoiceItem.findMany({ where: { itemType: "ADVANCE" }, select: { invoiceId: true } }),
+    prisma.payment.findMany({
+      where: { salonId: req.salonId, mode: "ADVANCE" },
+      select: { invoice: { select: { customerId: true } }, amount: true }
     })
   ]);
   const staffNameMap = new Map(staffDirectory.map((row) => [row.id, row.user?.name || row.user?.email || row.id]));
@@ -939,7 +944,7 @@ ownerRouter.get("/customers/:id", requireSalonPermission("customers", "view"), a
     }
   });
   const timelineEntries = advanceTimelineEntries;
-  const advanceAmount = timelineEntries.reduce((sum, entry) => {
+  const totalAdvance = timelineEntries.reduce((sum, entry) => {
     try {
       const details = JSON.parse(entry.details || "{}");
       return sum + Number(details.amount || 0);
@@ -947,6 +952,21 @@ ownerRouter.get("/customers/:id", requireSalonPermission("customers", "view"), a
       return sum;
     }
   }, 0);
+  // Calculate used advance: payments with mode=ADVANCE on non-advance-invoices for this customer
+  const advanceInvoiceIds = new Set(advanceInvoiceItems.map(i => i.invoiceId));
+  const usedAdvance = usedAdvancePayments.reduce((sum, p) => {
+    if (p.invoice?.customerId !== req.params.id) return sum;
+    if (advanceInvoiceIds.has(p.invoice?.customerId)) return sum;
+    // We can't easily filter by invoiceId here, so we filter the payments differently
+    return sum;
+  }, 0);
+  // Better: filter payments by customer's non-advance invoices
+  const customerInvoiceIds = new Set(customer.invoices.map(i => i.id));
+  const customerUsedAdvance = usedAdvancePayments.reduce((sum, p) => {
+    if (!customerInvoiceIds.has(p.invoice?.id || p.invoiceId)) return sum;
+    return sum + Number(p.amount || 0);
+  }, 0);
+  const advanceAmount = Math.max(0, totalAdvance - customerUsedAdvance);
 
   const familyMembers = await prisma.customer.findMany({
     where: { salonId: req.salonId, notes: { contains: `familyMemberOf:${req.params.id}` } }
