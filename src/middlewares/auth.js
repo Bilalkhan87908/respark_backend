@@ -1,7 +1,6 @@
 import { verifyAccessToken } from "../lib/tokens.js";
 import { prisma } from "../lib/prisma.js";
 import { defaultOwnerPermissions } from "../lib/permissions.js";
-import { runExpiredDemoCleanup } from "../lib/trialCleanup.js";
 
 export const authMiddleware = async (req, res, next) => {
   try {
@@ -24,15 +23,15 @@ export const authMiddleware = async (req, res, next) => {
     const membership = decoded.salonId
       ? user.memberships.find((m) => m.salonId === decoded.salonId)
       : null;
+    // Fix: customer profile must match the requested salon (or any salon if no salonId in token).
+    // Previous parenthesisation was ambiguous due to JS ternary precedence with `&&`.
     const customerProfile = user.systemRole === "CUSTOMER"
-      ? (decoded.salonId ? user.customerProfile && user.customerProfile.salonId === decoded.salonId ? user.customerProfile : null : user.customerProfile)
+      ? (decoded.salonId
+          ? (user.customerProfile && user.customerProfile.salonId === decoded.salonId ? user.customerProfile : null)
+          : user.customerProfile)
       : null;
 
     const resolvedSalonId = membership?.salonId || customerProfile?.salonId || null;
-
-    if (resolvedSalonId) {
-      await runExpiredDemoCleanup({ actorName: "AUTH_MIDDLEWARE", salonId: resolvedSalonId });
-    }
 
     if (resolvedSalonId) {
       const salon = await prisma.salon.findUnique({

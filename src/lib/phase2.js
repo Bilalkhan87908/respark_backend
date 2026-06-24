@@ -278,8 +278,25 @@ export const checkStaffAvailability = async ({
   const end = new Date(endAt);
 
   const salonSetting = await getSalonSetting(prisma, salonId, branchId);
-  const currency = salonSetting?.advancedSettings?.genericSettings?.currency || "INR";
-  const offsetMinutes = getOffsetMinutesByCurrency(currency);
+  // Prefer the salon's explicit IANA timezone over the currency-derived offset.
+  // Falls back to currency mapping only when timezone is not configured.
+  const salonTimezone = salonSetting?.advancedSettings?.genericSettings?.timezone;
+  let offsetMinutes = 0;
+  if (salonTimezone) {
+    try {
+      const sample = new Date();
+      const localStr = sample.toLocaleString("en-US", { timeZone: salonTimezone });
+      const localDate = new Date(localStr);
+      offsetMinutes = Math.round((localDate.getTime() - sample.getTime()) / 60000);
+    } catch (e) {
+      // Fallback to currency-based offset if timezone is invalid
+      const currency = salonSetting?.advancedSettings?.genericSettings?.currency || "INR";
+      offsetMinutes = getOffsetMinutesByCurrency(currency);
+    }
+  } else {
+    const currency = salonSetting?.advancedSettings?.genericSettings?.currency || "INR";
+    offsetMinutes = getOffsetMinutesByCurrency(currency);
+  }
 
   const getLocalTime = (isoStr) => {
     const d = new Date(isoStr);

@@ -2,7 +2,6 @@ import { Router } from "express";
 import { prisma } from "../../lib/prisma.js";
 import { appendTotalRow, attachBranchStock, buildCsv, isOwnScopedStaff, normalizeBranchId, toAmount } from "../../lib/phase2.js";
 import { requireAuth, requireFeatureEnabled, requireSalonContext, requireSalonPermission } from "../../middlewares/rbac.js";
-import { registerExtendedReports } from "./routes-extended.js";
 
 export const reportsRouter = Router();
 reportsRouter.use(requireAuth, requireSalonContext, requireFeatureEnabled("reports"), requireSalonPermission("reports", "view"));
@@ -954,4 +953,4 @@ reportsRouter.get("/export.xls", async (req, res) => {
   res.send(html);
 });
 
-registerExtendedReports(reportsRouter, prisma, buildInvoiceWhere);
+// (extended reports routes were removed — the registration stub has been deleted)

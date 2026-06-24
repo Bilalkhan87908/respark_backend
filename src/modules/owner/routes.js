@@ -747,7 +747,7 @@ ownerRouter.get("/customers", requireSalonPermission("customers", "view"), async
     include: {
       preferredStaff: { include: { user: true } },
       invoices: {
-        select: { balanceAmount: true }
+        select: { id: true, balanceAmount: true }
       },
       timelineEntries: {
         where: { eventType: "ADVANCE_PAYMENT" },
@@ -763,6 +763,31 @@ ownerRouter.get("/customers", requireSalonPermission("customers", "view"), async
     },
     orderBy: { createdAt: "desc" }
   });
+
+  // Batch fetch advance-related data: invoice items with type=ADVANCE (to identify advance-deposit invoices)
+  // and payments with mode=ADVANCE (to compute used advance per customer)
+  const allCustomerIds = rows.map((row) => row.id);
+  const allInvoiceIds = rows.flatMap((row) => (row.invoices || []).map((inv) => inv.id));
+  const [advanceInvoiceItems, usedAdvancePayments] = await Promise.all([
+    prisma.invoiceItem.findMany({
+      where: { itemType: "ADVANCE", invoiceId: { in: allInvoiceIds } },
+      select: { invoiceId: true }
+    }),
+    prisma.payment.findMany({
+      where: { salonId: req.salonId, mode: "ADVANCE" },
+      select: { invoiceId: true, amount: true, invoice: { select: { customerId: true } } }
+    })
+  ]);
+  const advanceInvoiceIds = new Set(advanceInvoiceItems.map((i) => i.invoiceId));
+  // Compute used advance per customer (only count payments on non-advance-deposit invoices)
+  const usedAdvanceByCustomer = new Map();
+  usedAdvancePayments.forEach((p) => {
+    if (!p.invoice?.customerId) return;
+    if (advanceInvoiceIds.has(p.invoiceId)) return; // skip payments ON the advance deposit invoice itself
+    const cid = p.invoice.customerId;
+    usedAdvanceByCustomer.set(cid, (usedAdvanceByCustomer.get(cid) || 0) + Number(p.amount || 0));
+  });
+
   const filteredRows = rows.filter((row) => {
     if (filter === "birthday_month") return row.dateOfBirth ? new Date(row.dateOfBirth).getMonth() === now.getMonth() : false;
     if (filter === "anniversary_month") return row.anniversary ? new Date(row.anniversary).getMonth() === now.getMonth() : false;
@@ -770,7 +795,7 @@ ownerRouter.get("/customers", requireSalonPermission("customers", "view"), async
   });
   const mapped = filteredRows.map(row => {
     const balanceAmount = (row.invoices || []).reduce((sum, inv) => sum + Number(inv.balanceAmount || 0), 0);
-    const advanceAmount = (row.timelineEntries || []).reduce((sum, entry) => {
+    const totalAdvance = (row.timelineEntries || []).reduce((sum, entry) => {
       try {
         const details = JSON.parse(entry.details || "{}");
         return sum + Number(details.amount || 0);
@@ -778,6 +803,9 @@ ownerRouter.get("/customers", requireSalonPermission("customers", "view"), async
         return sum;
       }
     }, 0);
+    const usedAdvance = usedAdvanceByCustomer.get(row.id) || 0;
+    // Show AVAILABLE advance (consistent with POS, customer detail, and CRM advance tab)
+    const advanceAmount = Math.max(0, totalAdvance - usedAdvance);
 
     const namePart = (row.name || "GUEST").trim().split(" ")[0].replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
     const phonePart = (row.phone || "0000").replace(/[^0-9]/g, "").slice(-4);
@@ -946,15 +974,9 @@ ownerRouter.get("/customers/:id", requireSalonPermission("customers", "view"), a
       return sum;
     }
   }, 0);
-  // Calculate used advance: payments with mode=ADVANCE on non-advance-invoices for this customer
+  // Compute available advance: total advance - advance used as payment on non-advance-invoices
+  // Advance deposits (itemType='ADVANCE' on the deposit invoice itself) are excluded
   const advanceInvoiceIds = new Set(advanceInvoiceItems.map(i => i.invoiceId));
-  const usedAdvance = usedAdvancePayments.reduce((sum, p) => {
-    if (p.invoice?.customerId !== req.params.id) return sum;
-    if (advanceInvoiceIds.has(p.invoice?.customerId)) return sum;
-    // We can't easily filter by invoiceId here, so we filter the payments differently
-    return sum;
-  }, 0);
-  // Better: filter payments by customer's non-advance invoices
   const customerInvoiceIds = new Set(customer.invoices.map(i => i.id));
   const customerUsedAdvance = usedAdvancePayments.reduce((sum, p) => {
     if (!customerInvoiceIds.has(p.invoice?.id || p.invoiceId)) return sum;
@@ -1164,6 +1186,27 @@ ownerRouter.patch("/users/:id", requireSalonPermission("staff", "edit"), validat
       include: { user: true, branch: true, customRole: true }
     });
     if (Array.isArray(req.body.serviceIds)) {
+      // Validate all service ids belong to this salon before mutating anything
+      if (req.body.serviceIds.length) {
+        const services = await tx.service.findMany({
+          where: { id: { in: req.body.serviceIds }, salonId: req.salonId, isActive: true }
+        });
+        if (services.length !== req.body.serviceIds.length) {
+          const error = new Error("One or more assigned services are invalid for this salon");
+          error.status = 400;
+          throw error;
+        }
+        if (branchId) {
+          const invalidService = services.find((s) => s.branchId && s.branchId !== branchId);
+          if (invalidService) {
+            const error = new Error("Assigned services must belong to the selected branch or be branch-shared");
+            error.status = 400;
+            throw error;
+          }
+        }
+      }
+      // Only mutate once the validations pass; this keeps the partial-save
+      // case from wiping all existing assignments before a failure.
       await tx.staffServiceAssignment.deleteMany({ where: { userSalonId: req.params.id } });
       if (req.body.serviceIds.length) {
         await tx.staffServiceAssignment.createMany({

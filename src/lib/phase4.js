@@ -79,11 +79,27 @@ export const getActiveLoyaltyRule = async (salonId, branchId = null) => {
 };
 
 export const getCustomerValidLoyaltyBalance = async (customerId) => {
-  const customer = await prisma.customer.findUnique({
-    where: { id: customerId },
-    select: { loyaltyPoints: true }
+  // Compute the current loyalty balance as:
+  //   sum( EARN points that are still valid ) - sum( REDEEM/ADJUST points )
+  // Points expire based on LoyaltyTransaction.expiresAt (NULL means never).
+  const now = new Date();
+  const transactions = await prisma.loyaltyTransaction.findMany({
+    where: { customerId },
+    select: { type: true, points: true, expiresAt: true }
   });
-  return customer?.loyaltyPoints || 0;
+  let balance = 0;
+  for (const tx of transactions) {
+    // Skip points that have already expired
+    if (tx.expiresAt && new Date(tx.expiresAt) < now) continue;
+    const points = Number(tx.points || 0);
+    if (tx.type === "EARN") {
+      balance += points;
+    } else if (tx.type === "REDEEM" || tx.type === "ADJUST" || tx.type === "EXPIRE") {
+      balance -= points;
+    }
+  }
+  // Never let the live recomputation go below zero (defensive)
+  return Math.max(0, balance);
 };
 
 export const recordLoyaltyTransaction = async ({

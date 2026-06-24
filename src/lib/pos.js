@@ -14,10 +14,16 @@ const normalizeStatus = (paidAmount, total, refundAmount = 0, cancelled = false)
 const toNumber = (value) => Number(value || 0);
 
 export const createInvoiceNumber = async (tx, salonId, branchId) => {
-  const count = await tx.invoice.count({ where: { salonId } });
+  // Concurrency-safe invoice number generation: append a short random suffix to
+  // avoid the read-then-write race that used to produce duplicate `invoiceNumber`
+  // errors under concurrent invoice creation. The `@unique` constraint on
+  // `invoiceNumber` would otherwise cause one of the two concurrent inserts
+  // to fail with a 500. Prefix is preserved for human-readable invoices.
   const settings = await getSalonSetting(tx, salonId, branchId);
   const prefix = settings?.invoicePrefix || "INV";
-  return `${prefix}-${String(count + 1).padStart(5, "0")}`;
+  const dateKey = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const random = crypto.randomBytes(2).toString("hex").toUpperCase();
+  return `${prefix}-${dateKey}-${random}`;
 };
 
 const ensureProduct = async (salonId, branchId, productId) => {
@@ -581,7 +587,10 @@ export const createPosInvoice = async ({ salonId, actorUser, body }) => {
         });
       }
 
-      if (item.itemType === "MEMBERSHIP") {
+      // Skip auto-creation of customerMembership / customerPackage when the caller
+      // (e.g. /memberships/assign) has already created the row and only needs
+      // the invoice/payment side of the flow. Otherwise we'd end up with duplicates.
+      if (item.itemType === "MEMBERSHIP" && !body.skipMembershipCreation) {
         const plan = await tx.membershipPlan.findUnique({ where: { id: item.membershipPlanId } });
         const startsAt = new Date();
         const endsAt = new Date(startsAt.getTime() + Number(plan.validityDays) * 24 * 60 * 60 * 1000);
@@ -598,7 +607,7 @@ export const createPosInvoice = async ({ salonId, actorUser, body }) => {
         });
       }
 
-      if (item.itemType === "PACKAGE") {
+      if (item.itemType === "PACKAGE" && !body.skipMembershipCreation) {
         const pack = await tx.package.findUnique({ where: { id: item.packageId } });
         const startsAt = new Date();
         const endsAt = new Date(startsAt.getTime() + Number(pack.validityDays) * 24 * 60 * 60 * 1000);

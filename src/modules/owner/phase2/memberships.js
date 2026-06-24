@@ -155,6 +155,8 @@ export const registerMembershipRoutes = (ownerRouter) => {
           body: {
             customerId: req.body.customerId,
             branchId: req.body.branchId || null,
+            // Skip auto-creation of customerMembership since we already created it above (line 116)
+            skipMembershipCreation: true,
             items: [{
               itemType: "MEMBERSHIP",
               membershipPlanId: plan.id,
@@ -445,6 +447,8 @@ export const registerMembershipRoutes = (ownerRouter) => {
           body: {
             customerId: req.body.customerId,
             branchId: req.body.branchId || null,
+            // Skip auto-creation of customerPackage since we already created it above
+            skipMembershipCreation: true,
             items: [{
               itemType: "PACKAGE",
               packageId: pack.id,

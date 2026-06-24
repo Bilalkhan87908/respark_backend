@@ -200,6 +200,10 @@ customerRouter.patch("/appointments/:id/reschedule", requireCustomerAuth, requir
     }
   });
   if (!row) return res.status(404).json({ message: "Appointment not found" });
+  // Only allow reschedule of appointments that are not yet completed, in-progress, or already cancelled
+  if (["COMPLETED", "IN_PROGRESS", "CANCELLED", "NO_SHOW"].includes(row.status)) {
+    return res.status(400).json({ message: `Cannot reschedule an appointment with status ${row.status}` });
+  }
   const setting = await prisma.salonSetting.findFirst({ where: { salonId: req.user.salonId, branchId: row.branchId } }) || await prisma.salonSetting.findFirst({ where: { salonId: req.user.salonId, branchId: null } });
   if (setting?.cancellationPolicy && String(setting.cancellationPolicy).toLowerCase().includes("no reschedule")) {
     return res.status(400).json({ message: "Salon booking rules do not allow customer reschedule." });
@@ -239,6 +243,10 @@ customerRouter.patch("/appointments/:id/reschedule", requireCustomerAuth, requir
 customerRouter.patch("/appointments/:id/cancel", requireCustomerAuth, requireCustomerPortalEnabled, validate(schemas.customerCancel), asyncHandler(async (req, res) => {
   const row = await prisma.appointment.findFirst({ where: { id: req.params.id, salonId: req.user.salonId, customerId: req.user.customerId } });
   if (!row) return res.status(404).json({ message: "Appointment not found" });
+  // Only allow cancellation of appointments that are not yet completed, in-progress, or already cancelled
+  if (["COMPLETED", "IN_PROGRESS", "CANCELLED", "NO_SHOW"].includes(row.status)) {
+    return res.status(400).json({ message: `Cannot cancel an appointment with status ${row.status}` });
+  }
   const updated = await prisma.appointment.update({ where: { id: row.id }, data: { status: "CANCELLED", notes: req.body.note || row.notes } });
   await prisma.appointmentLog.create({ data: { appointmentId: row.id, action: "CUSTOMER_CANCELLED", details: req.body.note || "Cancelled from customer portal", fromStatus: row.status, toStatus: "CANCELLED" } });
   res.json(updated);
