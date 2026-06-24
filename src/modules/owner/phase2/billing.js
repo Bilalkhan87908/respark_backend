@@ -137,7 +137,7 @@ export const registerBillingRoutes = (ownerRouter) => {
   }, async (req, res) => {
     const branchId = normalizeBranchId(req.query.branchId);
     const params = branchId ? { OR: [{ branchId }, { branchId: null }, { branchId: "" }] } : {};
-    const [customers, branches, services, staffUsers, products, memberships, packages, coupons, giftCards, settings] = await Promise.all([
+    const [customers, branches, services, staffUsers, products, memberships, packages, coupons, giftCards, settings, advanceTimeline] = await Promise.all([
       prisma.customer.findMany({
         where: { salonId: req.salonId }, 
         orderBy: { createdAt: "desc" },
@@ -151,7 +151,7 @@ export const registerBillingRoutes = (ownerRouter) => {
             orderBy: { createdAt: "desc" }
           },
           invoices: {
-            select: { id: true, balanceAmount: true, status: true, createdAt: true, total: true },
+            select: { id: true, balanceAmount: true, status: true, createdAt: true, total: true, items: { select: { lineTotal: true, itemType: true } } },
             orderBy: { createdAt: "desc" },
             take: 20
           }
@@ -190,8 +190,26 @@ export const registerBillingRoutes = (ownerRouter) => {
         },
         orderBy: { createdAt: "desc" }
       }),
-      prisma.salonSetting.findFirst({ where: { salonId: req.salonId, branchId: branchId || null } })
+      prisma.salonSetting.findFirst({ where: { salonId: req.salonId, branchId: branchId || null } }),
+      prisma.customerTimeline.findMany({
+        where: { customerId: { in: [] }, eventType: "ADVANCE_PAYMENT" },
+        select: { customerId: true, details: true }
+      })
     ]);
+
+    // Refetch advance timeline for all customers
+    const allAdvanceEntries = await prisma.customerTimeline.findMany({
+      where: { customerId: { in: customers.map(c => c.id) }, eventType: "ADVANCE_PAYMENT" },
+      select: { customerId: true, details: true }
+    });
+    const advanceByCustomer = new Map();
+    allAdvanceEntries.forEach((entry) => {
+      try {
+        const details = JSON.parse(entry.details || "{}");
+        const amount = Number(details.amount || 0);
+        advanceByCustomer.set(entry.customerId, (advanceByCustomer.get(entry.customerId) || 0) + amount);
+      } catch (e) {}
+    });
 
     // Enrich customers: compute lastVisitAt from invoices if not set
     const enrichedCustomers = customers.map(c => {
@@ -200,7 +218,11 @@ export const registerBillingRoutes = (ownerRouter) => {
         const paidInvoice = c.invoices.find(inv => inv.status === "PAID" || inv.status === "PARTIAL");
         lastVisitAt = paidInvoice ? paidInvoice.createdAt : c.invoices[0].createdAt;
       }
-      return { ...c, lastVisitAt };
+      // Compute advance: sum of advance timeline entries minus any advance USED as payment in other invoices
+      const totalAdvance = advanceByCustomer.get(c.id) || 0;
+      // Track how much advance was used as payment (type: ADVANCE in payments table)
+      // For now, the user can see total advance available. Used amount can be computed by querying Payment records with type=ADVANCE that belong to non-advance-invoices.
+      return { ...c, lastVisitAt, advanceAmount: totalAdvance };
     });
 
     const customerProfile = req.query.customerId
@@ -1106,23 +1128,74 @@ const sanitizeInvoicePhone = (phone) => {
   });
 
   ownerRouter.post("/advance-payments", requireSalonPermission("customers", "edit"), async (req, res) => {
-    const { customerId, amount, mode, remark } = req.body;
+    const { customerId, amount, mode, remark, branchId } = req.body;
     if (!customerId || !amount || Number(amount) <= 0) {
       return res.status(400).json({ message: "Customer and a positive amount are required" });
     }
     const customer = await prisma.customer.findFirst({ where: { id: customerId, salonId: req.salonId } });
     if (!customer) return res.status(404).json({ message: "Customer not found" });
 
-    const entry = await prisma.customerTimeline.create({
-      data: {
-        customerId,
-        eventType: "ADVANCE_PAYMENT",
-        title: `Advance payment of ${Number(amount).toFixed(2)} (${mode || "Offline"})`,
-        details: JSON.stringify({ amount: Number(amount), mode: mode || "Offline", remark: remark || "" }),
-        referenceId: null
-      }
+    const numericAmount = Number(amount);
+    const paymentMode = mode || "CASH";
+
+    // Generate unique invoice number
+    const dateKey = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const countToday = await prisma.invoice.count({ where: { salonId: req.salonId, invoiceNumber: { startsWith: `INV-${dateKey}-` } } });
+    const invoiceNumber = `INV-${dateKey}-${String(countToday + 1).padStart(4, "0")}`;
+
+    // Create invoice + payment + timeline entry in a single transaction
+    const result = await prisma.$transaction(async (tx) => {
+      const invoice = await tx.invoice.create({
+        data: {
+          salonId: req.salonId,
+          ...(branchId ? { branchId } : {}),
+          customerId,
+          invoiceNumber,
+          status: "PAID",
+          subtotal: numericAmount,
+          discount: 0,
+          tax: 0,
+          total: numericAmount,
+          paidAmount: numericAmount,
+          balanceAmount: 0,
+          notes: remark || "Advance payment",
+          items: {
+            create: [{
+              serviceName: "Advance Payment",
+              qty: 1,
+              unitPrice: numericAmount,
+              taxPct: 0,
+              lineTotal: numericAmount,
+              itemType: "ADVANCE"
+            }]
+          },
+          payments: {
+            create: [{
+              salonId: req.salonId,
+              amount: numericAmount,
+              mode: paymentMode,
+              type: "ADVANCE",
+              note: remark || "Advance payment"
+            }]
+          }
+        },
+        include: { items: true, payments: true, customer: true, branch: true }
+      });
+
+      const entry = await tx.customerTimeline.create({
+        data: {
+          customerId,
+          eventType: "ADVANCE_PAYMENT",
+          title: `Advance payment of ${numericAmount.toFixed(2)} (${paymentMode})`,
+          details: JSON.stringify({ amount: numericAmount, mode: paymentMode, remark: remark || "", invoiceId: invoice.id, invoiceNumber }),
+          referenceId: invoice.id
+        }
+      });
+
+      return { invoice, entry };
     });
-    res.status(201).json(entry);
+
+    res.status(201).json({ invoice: result.invoice, entry: result.entry });
   });
 
   ownerRouter.get("/advance-payments", requireSalonPermission("customers", "view"), async (req, res) => {

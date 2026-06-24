@@ -142,7 +142,7 @@ export const registerMembershipRoutes = (ownerRouter) => {
           payments.push({ mode: "CASH", amount: Number(req.body.offline), note: "Offline payment" });
         }
         if (req.body.advance != null && Number(req.body.advance) > 0) {
-          payments.push({ mode: "CASH", amount: Number(req.body.advance), note: "Advance payment" });
+          payments.push({ mode: "ADVANCE", amount: Number(req.body.advance), note: "Advance used" });
         }
 
         if (payments.length === 0 && finalPrice > 0) {
@@ -433,7 +433,7 @@ export const registerMembershipRoutes = (ownerRouter) => {
           payments.push({ mode: "CASH", amount: Number(req.body.balance), note: "Balance payment" });
         }
         if (req.body.advance != null && Number(req.body.advance) > 0) {
-          payments.push({ mode: "CASH", amount: Number(req.body.advance), note: "Advance payment" });
+          payments.push({ mode: "ADVANCE", amount: Number(req.body.advance), note: "Advance used" });
         }
         if (payments.length === 0 && finalPrice > 0) {
           payments.push({ mode: req.body.paymentMode || "CASH", amount: finalPrice, note: `Package: ${pack.name}` });
