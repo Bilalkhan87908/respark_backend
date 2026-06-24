@@ -1456,6 +1456,8 @@ ownerRouter.post("/website/config", requireSalonPermission("settings", "edit"), 
 
 ownerRouter.get("/reports/trends", requireSalonPermission("reports", "view"), async (req, res) => {
   const range = req.query.range || "7D";
+  const filter = String(req.query.filter || "overall").toLowerCase();
+  const period = String(req.query.period || "week").toLowerCase();
 
   let days = 7;
   if (range === "1D")  days = 1;
@@ -1465,8 +1467,16 @@ ownerRouter.get("/reports/trends", requireSalonPermission("reports", "view"), as
   if (range === "YTD") days = Math.ceil((new Date() - new Date(new Date().getFullYear(), 0, 1)) / 86400000) || 1;
   if (range === "1Y")  days = 365;
 
+  // Override days based on period (trend line granularity)
+  let periodDays = days;
+  if (period === "month") periodDays = 30;
+  if (period === "3m")    periodDays = 90;
+  if (period === "6m")    periodDays = 180;
+  if (period === "1y")    periodDays = 365;
+  if (period === "5y")    periodDays = Math.min(1825, days);
+
   const startDate = new Date();
-  startDate.setDate(startDate.getDate() - days);
+  startDate.setDate(startDate.getDate() - Math.max(days, periodDays));
   startDate.setHours(0,0,0,0);
 
   const invoices = await prisma.invoice.findMany({
@@ -1480,33 +1490,75 @@ ownerRouter.get("/reports/trends", requireSalonPermission("reports", "view"), as
     }
   });
 
-  let serviceRev = 0, productRev = 0, packageRev = 0, membershipRev = 0;
+  // Helper to determine if an item should be included based on the active filter
+  const itemMatchesFilter = (item) => {
+    const type = item.itemType || "SERVICE";
+    if (filter === "overall") return true;
+    if (filter === "service") return type === "SERVICE";
+    if (filter === "product") return type === "PRODUCT";
+    if (filter === "stylist") return !!item.staffName;  // only items with staff
+    return true;
+  };
+
+  let serviceRev = 0, productRev = 0, packageRev = 0, membershipRev = 0, giftCardRev = 0;
 
   invoices.forEach(inv => {
     inv.items.forEach(item => {
-      const type  = item.itemType || "SERVICE";  // fixed: itemType not type
-      const total = Number(item.lineTotal || 0); // fixed: lineTotal not total
+      if (!itemMatchesFilter(item)) return;
+      const type  = item.itemType || "SERVICE";
+      const total = Number(item.lineTotal || 0);
       if (type === "SERVICE")    serviceRev    += total;
       if (type === "PRODUCT")    productRev    += total;
       if (type === "PACKAGE")    packageRev    += total;
       if (type === "MEMBERSHIP") membershipRev += total;
+      if (type === "GIFT_CARD")  giftCardRev   += total;
     });
   });
 
-  const totalRev = serviceRev + productRev + packageRev + membershipRev;
+  const totalRev = serviceRev + productRev + packageRev + membershipRev + giftCardRev;
 
-  const revenueSplit = [
-    { name: "Total", value: totalRev, fill: "#6366f1" },
-    { name: "Service", value: serviceRev, fill: "#3b82f6" },
-    { name: "Product", value: productRev, fill: "#10b981" },
-    { name: "Package", value: packageRev, fill: "#f59e0b" },
-    { name: "Membership", value: membershipRev, fill: "#ec4899" },
-    { name: "Gift Card", value: 0, fill: "#8b5cf6" }
-  ];
+  // Build revenue split based on filter
+  let revenueSplit;
+  if (filter === "overall") {
+    revenueSplit = [
+      { name: "Total",      value: totalRev,        fill: "#6366f1" },
+      { name: "Service",    value: serviceRev,      fill: "#3b82f6" },
+      { name: "Product",    value: productRev,      fill: "#10b981" },
+      { name: "Package",    value: packageRev,      fill: "#f59e0b" },
+      { name: "Membership", value: membershipRev,   fill: "#ec4899" },
+      { name: "Gift Card",  value: giftCardRev,     fill: "#8b5cf6" }
+    ];
+  } else if (filter === "service") {
+    revenueSplit = [
+      { name: "Service", value: serviceRev, fill: "#3b82f6" }
+    ];
+  } else if (filter === "product") {
+    revenueSplit = [
+      { name: "Product", value: productRev, fill: "#10b981" }
+    ];
+  } else if (filter === "stylist") {
+    // For stylist, we'll show staff names as categories
+    const stylistMap = {};
+    invoices.forEach(inv => {
+      inv.items.forEach(item => {
+        if (!item.staffName) return;
+        stylistMap[item.staffName] = (stylistMap[item.staffName] || 0) + Number(item.lineTotal || 0);
+      });
+    });
+    revenueSplit = Object.entries(stylistMap)
+      .map(([name, value]) => ({ name, value, fill: "#6366f1" }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
+    if (revenueSplit.length === 0) revenueSplit = [{ name: "Stylist Revenue", value: totalRev, fill: "#6366f1" }];
+  } else {
+    revenueSplit = [
+      { name: "Total", value: totalRev, fill: "#6366f1" }
+    ];
+  }
 
   // daily trend line
   const dateMap = {};
-  const totalDays = Math.max(days, 1);
+  const totalDays = Math.max(periodDays, 1);
   for (let i = 0; i < totalDays; i++) {
     const d = new Date();
     d.setDate(d.getDate() - (totalDays - 1 - i));
@@ -1518,6 +1570,7 @@ ownerRouter.get("/reports/trends", requireSalonPermission("reports", "view"), as
     const dStr = inv.createdAt.toISOString().slice(0, 10);
     if (dateMap[dStr]) {
       inv.items.forEach(item => {
+        if (!itemMatchesFilter(item)) return;
         const type = item.itemType || "SERVICE";
         const t    = Number(item.lineTotal || 0);
         dateMap[dStr].total += t;
@@ -1529,24 +1582,27 @@ ownerRouter.get("/reports/trends", requireSalonPermission("reports", "view"), as
     }
   });
 
-  // top services
+  // top services — based on filter
   const serviceMap = {};
   invoices.forEach(inv => {
-    inv.items.filter(i => (i.itemType || "SERVICE") === "SERVICE").forEach(item => {
-      const name = item.serviceName || "Unknown";
-      serviceMap[name] = (serviceMap[name] || 0) + Number(item.lineTotal || 0);
-    });
+    inv.items
+      .filter(i => (i.itemType || "SERVICE") === "SERVICE" && itemMatchesFilter(i))
+      .forEach(item => {
+        const name = item.serviceName || "Unknown";
+        serviceMap[name] = (serviceMap[name] || 0) + Number(item.lineTotal || 0);
+      });
   });
   const topServices = Object.entries(serviceMap)
     .map(([name, revenue]) => ({ name, revenue }))
     .sort((a, b) => b.revenue - a.revenue)
     .slice(0, 5);
 
-  // top staff
+  // top staff — based on filter
   const staffMap = {};
   invoices.forEach(inv => {
     inv.items.forEach(item => {
       if (!item.staffName) return;
+      if (!itemMatchesFilter(item)) return;
       staffMap[item.staffName] = (staffMap[item.staffName] || 0) + Number(item.lineTotal || 0);
     });
   });

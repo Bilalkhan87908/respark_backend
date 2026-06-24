@@ -653,7 +653,7 @@ reportsRouter.get("/customers", async (req, res) => {
             { invoices: { some: { items: { some: { staffUserSalonId: req.user.membershipId } } } } }
           ]
         }
-      : { salonId: req.salonId },
+      : { salonId: req.salonId, invoices: { some: {} } },
     include: {
       invoices: { include: { payments: true, items: true } },
       memberships: { include: { membershipPlan: true, usageLogs: true } },
@@ -661,6 +661,9 @@ reportsRouter.get("/customers", async (req, res) => {
     },
     orderBy: { totalSpend: "desc" }
   });
+
+  // Only include customers with at least one purchase
+  const customersWithPurchases = customers.filter((c) => c.invoices.length > 0);
 
   const giftCardRedemptions = await prisma.giftCardRedemption.findMany({
     where: { salonId: req.salonId },
@@ -689,7 +692,10 @@ reportsRouter.get("/customers", async (req, res) => {
     loyByCustomer[r.customerId] += toAmount(r.points);
   });
 
-  res.json(customers.map((c, idx) => {
+  // Helper: return null instead of 0 when there's no data for this column
+  const nullIfZero = (value) => (value === 0 || value === undefined || value === null) ? null : value;
+
+  const rows = customersWithPurchases.map((c, idx) => {
     let totalTax = 0, balancePending = 0, advanceUtilized = 0, balanceCleared = 0, onlineTotal = 0, offlineTotal = 0;
     c.invoices.forEach(inv => {
       totalTax += toAmount(inv.tax);
@@ -713,21 +719,44 @@ reportsRouter.get("/customers", async (req, res) => {
       "GUEST NAME": c.name,
       "GUEST NUMBER": c.phone,
       "COUNT": c.invoices.length,
-      "TAXES": totalTax,
-      "GIFT CARD": gcByCustomer[c.id] || 0,
-      "COUPON": cpByCustomer[c.id] || 0,
-      "REFERRAL": 0,
-      "LOYALTY": loyByCustomer[c.id] || 0,
-      "BALANCE PENDING": balancePending,
-      "ADVANCE UTILIZED": advanceUtilized,
-      "PACKAGE REDEMPTION": pkgRedemption,
-      "BALANCE CLEARED": balanceCleared,
-      "MEMBERSHIP REDEMPTION": memRedemption,
-      "ONLINE": onlineTotal,
-      "OFFLINE": offlineTotal,
+      "TAXES": nullIfZero(totalTax),
+      "GIFT CARD": nullIfZero(gcByCustomer[c.id]),
+      "COUPON": nullIfZero(cpByCustomer[c.id]),
+      "REFERRAL": null,
+      "LOYALTY": nullIfZero(loyByCustomer[c.id]),
+      "BALANCE PENDING": nullIfZero(balancePending),
+      "ADVANCE UTILIZED": nullIfZero(advanceUtilized),
+      "PACKAGE REDEMPTION": nullIfZero(pkgRedemption),
+      "BALANCE CLEARED": nullIfZero(balanceCleared),
+      "MEMBERSHIP REDEMPTION": nullIfZero(memRedemption),
+      "ONLINE": nullIfZero(onlineTotal),
+      "OFFLINE": nullIfZero(offlineTotal),
       "TOTAL": toAmount(c.totalSpend)
     };
-  }));
+  });
+
+  // Add a TOTAL row at the end
+  const totalRow = {
+    "SR. NO.": null,
+    "GUEST NAME": "TOTAL",
+    "GUEST NUMBER": null,
+    "COUNT": rows.reduce((sum, r) => sum + (r["COUNT"] || 0), 0),
+    "TAXES": rows.reduce((sum, r) => sum + (r["TAXES"] || 0), 0),
+    "GIFT CARD": rows.reduce((sum, r) => sum + (r["GIFT CARD"] || 0), 0),
+    "COUPON": rows.reduce((sum, r) => sum + (r["COUPON"] || 0), 0),
+    "REFERRAL": rows.reduce((sum, r) => sum + (r["REFERRAL"] || 0), 0),
+    "LOYALTY": rows.reduce((sum, r) => sum + (r["LOYALTY"] || 0), 0),
+    "BALANCE PENDING": rows.reduce((sum, r) => sum + (r["BALANCE PENDING"] || 0), 0),
+    "ADVANCE UTILIZED": rows.reduce((sum, r) => sum + (r["ADVANCE UTILIZED"] || 0), 0),
+    "PACKAGE REDEMPTION": rows.reduce((sum, r) => sum + (r["PACKAGE REDEMPTION"] || 0), 0),
+    "BALANCE CLEARED": rows.reduce((sum, r) => sum + (r["BALANCE CLEARED"] || 0), 0),
+    "MEMBERSHIP REDEMPTION": rows.reduce((sum, r) => sum + (r["MEMBERSHIP REDEMPTION"] || 0), 0),
+    "ONLINE": rows.reduce((sum, r) => sum + (r["ONLINE"] || 0), 0),
+    "OFFLINE": rows.reduce((sum, r) => sum + (r["OFFLINE"] || 0), 0),
+    "TOTAL": rows.reduce((sum, r) => sum + (r["TOTAL"] || 0), 0)
+  };
+
+  res.json([...rows, totalRow]);
 });
 
 reportsRouter.get("/branch-sales", async (req, res) => {

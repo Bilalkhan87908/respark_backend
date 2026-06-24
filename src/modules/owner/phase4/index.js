@@ -2,6 +2,7 @@ import { registerCommunicationRoutes } from "./communications.js";
 import { registerEnquiryRoutes } from "./enquiries.js";
 import { registerFeedbackRoutes } from "./feedback.js";
 import { registerLoyaltyRoutes } from "./loyalty.js";
+import { registerMissingReportRoutes } from "./missing-reports.js";
 import { registerOperationsRoutes } from "./operations.js";
 import { registerPromotionRoutes } from "./promotions.js";
 import { registerAdvancedReportRoutes } from "./reports.js";
@@ -14,4 +15,5 @@ export const registerPhase4OwnerRoutes = (ownerRouter) => {
   registerOperationsRoutes(ownerRouter);
   registerCommunicationRoutes(ownerRouter);
   registerAdvancedReportRoutes(ownerRouter);
+  registerMissingReportRoutes(ownerRouter);
 };
