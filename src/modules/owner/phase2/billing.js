@@ -1267,10 +1267,13 @@ const sanitizeInvoicePhone = (phone) => {
 
   // Gift Card Validation for POS redemption
   ownerRouter.post("/gift-cards/validate", requireSalonPermission("billing", "view"), async (req, res) => {
-    const { code } = req.body;
+    const { code, customerId } = req.body;
     if (!code) return res.status(400).json({ message: "Gift card code is required" });
     const giftCard = await prisma.giftCard.findFirst({
-      where: { salonId: req.salonId, code: String(code).trim(), isActive: true }
+      where: {
+        salonId: req.salonId, code: String(code).trim(), isActive: true,
+        ...(customerId ? { OR: [{ issuedToCustomerId: customerId }, { issuedToCustomerId: null }] } : {})
+      }
     });
     if (!giftCard) return res.status(404).json({ message: "Gift card not found" });
     if (giftCard.expiresAt && new Date(giftCard.expiresAt) < new Date()) {

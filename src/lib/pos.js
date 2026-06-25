@@ -525,7 +525,9 @@ export const createPosInvoice = async ({ salonId, actorUser, body }) => {
     ? [{ mode: "WALLET", amount: giftCardPayment, note: `Gift card ${body.giftVoucherCode}`, type: "PAYMENT" }]
     : [];
   const allPayments = [...autoPayments, ...(body.payments || [])];
-  const initialPaidAmount = allPayments.reduce((sum, payment) => sum + toAmount(payment.amount), 0);
+  const initialPaidAmount = allPayments
+    .filter(p => p.mode !== "BALANCE")
+    .reduce((sum, payment) => sum + toAmount(payment.amount), 0);
 
   return prisma.$transaction(async (tx) => {
     const invoiceNumber = await createInvoiceNumber(tx, salonId, body.branchId || null);
