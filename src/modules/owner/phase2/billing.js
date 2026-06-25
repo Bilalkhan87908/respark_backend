@@ -1293,12 +1293,13 @@ const sanitizeInvoicePhone = (phone) => {
     try {
       const { amount, mode, staffId, note } = req.body;
       if (!amount || Number(amount) <= 0) return res.status(400).json({ message: "Tip amount must be greater than zero" });
+      const tipNote = staffId ? `staffId:${staffId}|${note || "Tip"}` : (note || "Tip");
       const payment = await addInvoiceTip({
         salonId: req.salonId,
         invoiceId: req.params.id,
         amount: Number(amount),
         mode: mode || "CASH",
-        note: note || `Tip`,
+        note: tipNote,
         actorUser: req.user
       });
       res.status(201).json(payment);
